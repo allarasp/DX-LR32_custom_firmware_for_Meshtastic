@@ -1,0 +1,28 @@
+# Compiled firmware and intermediate build files
+**/build/
+*.elf
+*.bin
+*.hex
+*.map
+*.o
+*.d
+*.a
+
+# Hardware debug and serial logs (may contain device identifiers)
+logs/
+*.log
+
+# Local tool environments and editor files
+.venv/
+.vscode/
+.idea/
+__pycache__/
+*.pyc
+.DS_Store
+
+# Secrets and local machine configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
