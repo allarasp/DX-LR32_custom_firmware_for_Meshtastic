@@ -87,7 +87,21 @@ Ensure a single safe power arrangement before connecting a programmer or USB–U
 
 ## Source code and setup
 
-The firmware is being developed in WSL under `~/dx-lr32-meshtastic/`. The working sources, build instructions, linker/startup code, OpenOCD configuration, and hardware test notes should be imported from that directory.
+The firmware sources, GNU startup/linker code, tests, and generic OpenOCD configurations are included. On Ubuntu/WSL, install the build prerequisites and fetch the pinned source dependencies:
+
+```sh
+sudo apt-get install --no-install-recommends gcc-arm-none-eabi binutils-arm-none-eabi build-essential git python3
+python3 firmware/tools/prepare_deps.py
+make -C firmware -j2 uart-check check
+```
+
+- `firmware/build/uartdiag/controller.elf`: the **v0.1.1 UART diagnostic firmware tested on hardware**, using 115200 8N1. Its binary is 1,712 bytes; static SRAM is 60 bytes, plus a reserved 1 KB stack.
+- `firmware/build/controller.elf`: the **experimental SX1262 foundation**, built and host-tested but not flashed or radio-verified. It currently uses 9600 baud and a 4 MHz clock; it is a separate development image.
+- `firmware/src/`, `firmware/include/`: both firmware implementations and the SX126x platform hooks.
+- `firmware/tests/`: image, UART command-parser, and mocked radio HAL tests.
+- `configs/`, `bin/`: generic debug configuration and optional diagnostic/tool-build helpers. Builds and tests do not access hardware.
+
+See [build instructions and dependency sources](docs/BUILD.md) and the [hardware bring-up summary](docs/bring-up.md). Generated firmware, downloaded dependencies, private logs, and device-specific identification records are intentionally excluded. Dependencies are fetched by exact commit and verified against [source hashes](docs/source-lock.json); they are not bundled in Git.
 
 **Do not treat this README alone as a flashable firmware release.** Only flash firmware built from reviewed and verified sources for the exact target MCU.
 

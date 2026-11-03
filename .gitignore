@@ -26,3 +26,23 @@ __pycache__/
 !.env.example
 *.pem
 *.key
+
+# Downloaded third-party sources and locally built debug tools
+/vendor/
+/src/openocd-code/
+/tools/
+/packages/
+
+# Private session records and machine-specific bring-up files
+/.local/
+/configs/bringup-*
+/docs/first-flash-bringup.md
+/docs/*-mirror.txt
+/docs/reference-1.0.2.txt
+/docs/openocd-cx32l003.patch
+/install-tools.sh
+
+# Compiler stack reports and temporary files
+*.su
+*.tmp
+*~

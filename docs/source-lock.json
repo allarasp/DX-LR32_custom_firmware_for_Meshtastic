@@ -1,0 +1,55 @@
+{
+  "date": "2026-11-03",
+  "repositories": [
+    {
+      "path": "vendor/cx32l003-mirror",
+      "url": "https://github.com/Z1R343L-D77/CX32L003-HAL-SPL.git",
+      "commit": "f8dabc3b529094127ab76cfd43589d8361b70cc5",
+      "sparse_paths": [
+        "/keil_CX32L003_pack/XMC.CX32L003_DFP.1.0.7.pack"
+      ]
+    },
+    {
+      "path": "vendor/CMSIS_5",
+      "url": "https://github.com/ARM-software/CMSIS_5.git",
+      "commit": "2b7495b8535bdcb306dac29b9ded4cfb679d7e5c",
+      "sparse_paths": [
+        "/CMSIS/Core/Include/cmsis_compiler.h",
+        "/CMSIS/Core/Include/cmsis_gcc.h",
+        "/CMSIS/Core/Include/cmsis_version.h",
+        "/CMSIS/Core/Include/core_cm0plus.h",
+        "/LICENSE.txt"
+      ]
+    },
+    {
+      "path": "vendor/sx126x_driver",
+      "url": "https://github.com/Lora-net/sx126x_driver.git",
+      "commit": "a10c5dfdf89788c6ac805e9fe98889de44175aa2",
+      "sparse_paths": [
+        "/LICENSE.txt",
+        "/src/sx126x.c",
+        "/src/sx126x.h",
+        "/src/sx126x_hal.h",
+        "/src/sx126x_regs.h",
+        "/src/sx126x_status.h"
+      ]
+    }
+  ],
+  "files": {
+    "vendor/cx32l003-mirror/keil_CX32L003_pack/XMC.CX32L003_DFP.1.0.7.pack": "3af95deaa6ed3772fb2c2a7061a1c5a950d6e6bf8ff983799f3f00b1daeb9749",
+    "vendor/cx32l003-dfp/Device/Source/system_cx32l003.c": "e69c0477b455b4addf2269428bac41e4578de233aeaf077f07cf3745042ea3b4",
+    "vendor/cx32l003-dfp/Device/Include/system_cx32l003.h": "20bae1ae7156e5ffdb15ca4f66e6dbcb8887ba34c1838cdd2279604e925b652d",
+    "vendor/cx32l003-dfp/Device/Include/cx32l003.h": "aec6f2f7a9ba6f3ccfb6765fcd1a430be414951e7034d5b22ed48cf3bf9588bd",
+    "vendor/CMSIS_5/CMSIS/Core/Include/cmsis_gcc.h": "43bfd1fe69fbbc2ca70aaf7d43cc3e20f16e0c7f66e1bdef9b51af6dc14b2617",
+    "vendor/CMSIS_5/CMSIS/Core/Include/core_cm0plus.h": "a09fa9c6b8b21d1920bce15b98aa56182b027e9278cca0b154812bac2aea3cfa",
+    "vendor/CMSIS_5/CMSIS/Core/Include/cmsis_version.h": "184c19fd3ee73632edf35a0b4d49cd48be75fbf49e6ccb19d9db05fa83bea4b3",
+    "vendor/CMSIS_5/CMSIS/Core/Include/cmsis_compiler.h": "b51963d271c1571ca3463654c76aa7ea50c4eac5d0a2710df10414ac64d9e0f8",
+    "vendor/CMSIS_5/LICENSE.txt": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
+    "vendor/sx126x_driver/src/sx126x.c": "364465db57f5ebaf216934dc45676ff83a8cdee162a1d1b5b6da8cea61dfa4ca",
+    "vendor/sx126x_driver/src/sx126x_hal.h": "b70a5de4265a0074ab3c8577a4fd55f10634e02351fabc5c16f752cccc102d2c",
+    "vendor/sx126x_driver/src/sx126x_regs.h": "dd64a28905140a9d6d21bc91c18db4fa039e24503d8534e333bf48300a3dfb28",
+    "vendor/sx126x_driver/src/sx126x_status.h": "043780bfeecdfb9d22137cbac33521aa2c40d052e3338c74ff0ff86feb176235",
+    "vendor/sx126x_driver/src/sx126x.h": "798e0aa7d773992371d82f747ebe66e00c6c0ec54b3b3a0f528822828e0d063f",
+    "vendor/sx126x_driver/LICENSE.txt": "a158fe2180a1429e59d7552ca3c31e4b312aca958423f3e98c15bb63fcb05ea9"
+  }
+}
