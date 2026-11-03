@@ -9,7 +9,7 @@ SDK, Keil, IAR, OpenOCD or connected hardware are required to build firmware.
 sudo apt-get install --no-install-recommends \
   gcc-arm-none-eabi binutils-arm-none-eabi build-essential git python3
 python3 firmware/tools/prepare_deps.py
-make -C firmware -j2 uart-check check
+make -C firmware -j2 radio-check uart-check check
 ```
 
 Dependency preparation needs network access on a fresh checkout. Subsequent
@@ -23,18 +23,20 @@ The ignored dependency checkouts are not submodules of this repository.
 
 | Target | Output | Status |
 | --- | --- | --- |
+| `make -C firmware radiodiag` | `firmware/build/radiodiag/controller.{elf,bin,hex,map}` | v0.2.0, flashed/readback verified; UART works, radio BUSY timeout under investigation |
 | `make -C firmware uartdiag` | `firmware/build/uartdiag/controller.{elf,bin,hex,map}` | UART diagnostic v0.1.1, physically tested at 115200 8N1 |
 | `make -C firmware all` | `firmware/build/controller.{elf,bin,hex,map}` | Experimental UART/SX1262 foundation; UART 9600 8N1, SPI mode 0 at 500 kHz; not flashed |
 | `make -C firmware check` | Also `firmware/build/driver-check.elf` | Retains all baseline `sx126x.c` functions to validate linkage and size; not a deployment image |
 
 The default Makefile target builds the experimental foundation. Use `uartdiag`
-explicitly for the image that was tested on hardware. Neither target programs,
+explicitly for the image that was tested on hardware. No build target programs,
 erases, resets, or otherwise accesses a device.
 
 Observed sizes with the toolchain above:
 
 | Image | Flash | Static SRAM | Reserved stack |
 | --- | ---: | ---: | ---: |
+| Radio diagnostic | 5,100 B | 340 B | 1,024 B |
 | UART diagnostic | 1,712 B | 60 B | 1,024 B |
 | Experimental foundation | 1,592 B | 8 B | 1,024 B |
 | Full baseline driver link check | 6,364 B | 176 B | 1,024 B |
@@ -46,6 +48,11 @@ at `0x20000000`. Link assertions prevent static-data/stack overlap and Flash
 overflow. No option-byte, calibration, UID or ISP region is emitted.
 
 ## Tests
+
+`radio-check` validates the new image and tests the real pinned Semtech command
+encoder through a mocked platform: golden frames, packet-type readback and
+restoration, invalid responses, BUSY/tick deadlines, SPI failure cleanup and
+RF-command rejection. Physical results are separate in [radio bring-up](radio-bring-up.md).
 
 `uart-check` verifies source hashes and the ELF/binary layout, then runs the
 host UART command-parser tests. `check` verifies the experimental image,

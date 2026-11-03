@@ -1,4 +1,7 @@
 #include "uart_diag.h"
+#ifdef RADIO_DIAGNOSTICS
+#include "radio_diag.h"
+#endif
 
 volatile uint32_t startup_cookie = 0x13579bdfu; /* Check actual .data copying. */
 volatile uint32_t zero_probe;                 /* Check actual .bss clearing. */
@@ -22,6 +25,9 @@ int main(void) {
     write_text("DXLR32 CUSTOM FW BOOT\r\n");
     diagnostic.stage = 5;
     diagnostic.magic = DIAG_BOOT_MAGIC;
+#ifdef RADIO_DIAGNOSTICS
+    write_text(radio_diag_init());
+#endif
     struct diagnostic_line line = {0};
     for (;;) {
         ++diagnostic.loops;

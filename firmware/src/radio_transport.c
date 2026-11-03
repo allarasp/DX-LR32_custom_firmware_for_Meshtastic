@@ -1,0 +1,109 @@
+#include <stddef.h>
+#include "radio_diag.h"
+#include "sx126x_hal.h"
+
+struct radio_link_trace radio_link;
+
+static bool ready(void) {
+    uint32_t start = radio_io_millis(), remaining = 2000000u;
+    while (radio_io_busy()) {
+        radio_io_idle();
+        if ((uint32_t)(radio_io_millis() - start) >= 100u) {
+            radio_link.error = RADIO_LINK_BUSY_TIMEOUT;
+            ++radio_link.busy_timeouts;
+            return false;
+        }
+        if (--remaining == 0) {
+            radio_link.error = RADIO_LINK_CLOCK_STALL;
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool delay(uint32_t ms) {
+    if (radio_io_delay(ms)) { return true; }
+    radio_link.error = RADIO_LINK_CLOCK_STALL;
+    return false;
+}
+
+static bool safe_command(bool read, const uint8_t *cmd, uint16_t count, uint16_t size) {
+    /* Deliberate non-RF whitelist: SetTx, RX, FS, DIO2/DIO3 and RF setup blocked. */
+    if (read) {
+        return (cmd[0] == 0xc0 && count == 1 && size == 1) ||
+            (cmd[0] == 0x17 && count == 2 && cmd[1] == 0 && size == 2) ||
+            (cmd[0] == 0x11 && count == 2 && cmd[1] == 0 && size == 1) ||
+            (cmd[0] == 0x1d && count == 4 && cmd[3] == 0 && size > 0 && size <= 4);
+    }
+    return size == 0 && count == 2 &&
+        ((cmd[0] == 0x80 && cmd[1] == 0) || (cmd[0] == 0x8a && cmd[1] <= 1));
+}
+
+static bool byte(uint8_t tx, uint8_t *rx) {
+    if (!radio_io_spi(tx, rx)) {
+        radio_link.error = RADIO_LINK_SPI_FAULT;
+        ++radio_link.spi_failures;
+        return false;
+    }
+    unsigned n = radio_link.length++;
+    if (n < sizeof(radio_link.tx)) { radio_link.tx[n] = tx; radio_link.rx[n] = *rx; }
+    return true;
+}
+
+static sx126x_hal_status_t transfer(bool read, const uint8_t *cmd, uint16_t count,
+                                    const uint8_t *tx, uint8_t *rx, uint16_t size) {
+    radio_link.error = RADIO_LINK_OK;
+    radio_link.length = 0;
+    if (!cmd || !count || (size && ((read && !rx) || (!read && !tx)))) {
+        radio_link.error = RADIO_LINK_BAD_ARGUMENT;
+        return SX126X_HAL_STATUS_ERROR;
+    }
+    if (!safe_command(read, cmd, count, size)) {
+        radio_link.error = RADIO_LINK_COMMAND_BLOCKED;
+        return SX126X_HAL_STATUS_ERROR;
+    }
+    if (!ready()) { return SX126X_HAL_STATUS_ERROR; }
+    radio_io_select(true);
+    uint8_t discard;
+    bool ok = true;
+    for (uint16_t i=0; ok && i<count; ++i) { ok = byte(cmd[i], &discard); }
+    for (uint16_t i=0; ok && i<size; ++i) { ok = byte(read ? 0 : tx[i], read ? &rx[i] : &discard); }
+    radio_io_select(false);
+    /* >600 ns BUSY assertion latency after NSS rises. 2 tick transitions
+     * guarantee at least 1 ms before sampling, despite tick quantization. */
+    if (ok) { ok = delay(2) && ready(); }
+    if (ok) { ++radio_link.transactions; }
+    return ok ? SX126X_HAL_STATUS_OK : SX126X_HAL_STATUS_ERROR;
+}
+
+sx126x_hal_status_t sx126x_hal_write(const void *context, const uint8_t *cmd,
+                                    uint16_t count, const uint8_t *data, uint16_t size) {
+    (void)context;
+    return transfer(false,cmd,count,data,NULL,size);
+}
+sx126x_hal_status_t sx126x_hal_read(const void *context, const uint8_t *cmd,
+                                   uint16_t count, uint8_t *data, uint16_t size) {
+    (void)context;
+    return transfer(true,cmd,count,NULL,data,size);
+}
+sx126x_hal_status_t sx126x_hal_reset(const void *context) {
+    (void)context;
+    radio_link.error = RADIO_LINK_OK;
+    radio_link.length = 0;
+    radio_io_select(false);
+    radio_io_reset(true);
+    bool ok = delay(2); /* >=1 ms physical pulse; Semtech typical minimum 100 us */
+    radio_io_reset(false); /* release reset even if the timer failed */
+    radio_link.reset_busy_high = radio_io_busy();
+    if (ok) { ok = delay(10) && ready(); }
+    if (ok) { ++radio_link.resets; }
+    return ok ? SX126X_HAL_STATUS_OK : SX126X_HAL_STATUS_ERROR;
+}
+sx126x_hal_status_t sx126x_hal_wakeup(const void *context) {
+    (void)context;
+    radio_link.error = RADIO_LINK_OK;
+    radio_io_select(true);
+    bool ok = delay(2) && ready();
+    radio_io_select(false);
+    return ok ? SX126X_HAL_STATUS_OK : SX126X_HAL_STATUS_ERROR;
+}

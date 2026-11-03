@@ -78,7 +78,9 @@ Ensure a single safe power arrangement before connecting a programmer or USB–U
 - [x] Built and flashed custom diagnostic firmware **v0.1.1**.
 - [x] Verified boot, firmware readback, and physical UART communication.
 - [x] Verified `PING` / `PONG`, `VERSION`, and `STATUS` over UART at 115200 8N1.
-- [ ] Verify boot after a full power cycle.
+- [x] Verify v0.1.1 boot and UART after a full power cycle.
+- [x] Build, program and readback-verify radio diagnostic **v0.2.0**; UART remains working.
+- [ ] Resolve radio BUSY timeout: reset latch is high but PB5 input reads low; SPI commands are currently blocked by BUSY.
 - [ ] Initialize SX1262 and read back its status over SPI.
 - [ ] Validate receive/transmit of LoRa packets.
 - [ ] Implement the ESP32-side Meshtastic UART radio adapter.
@@ -92,16 +94,17 @@ The firmware sources, GNU startup/linker code, tests, and generic OpenOCD config
 ```sh
 sudo apt-get install --no-install-recommends gcc-arm-none-eabi binutils-arm-none-eabi build-essential git python3
 python3 firmware/tools/prepare_deps.py
-make -C firmware -j2 uart-check check
+make -C firmware -j2 radio-check uart-check check
 ```
 
+- `firmware/build/radiodiag/controller.elf`: **v0.2.0 radio diagnostics**, flashed and UART-tested; 5,100 bytes Flash, 340 bytes static SRAM plus 1 KB stack. `RADIO_RESET`, `RADIO_STATUS`, `RADIO_ERRORS`, and `RADIO_TEST` are implemented with timeouts. Actual initialization reports `BUSY_TIMEOUT`; successful SX1262 communication is still unverified. No RF transmissions or DIO2/DIO3 control.
 - `firmware/build/uartdiag/controller.elf`: the **v0.1.1 UART diagnostic firmware tested on hardware**, using 115200 8N1. Its binary is 1,712 bytes; static SRAM is 60 bytes, plus a reserved 1 KB stack.
 - `firmware/build/controller.elf`: the **experimental SX1262 foundation**, built and host-tested but not flashed or radio-verified. It currently uses 9600 baud and a 4 MHz clock; it is a separate development image.
 - `firmware/src/`, `firmware/include/`: both firmware implementations and the SX126x platform hooks.
 - `firmware/tests/`: image, UART command-parser, and mocked radio HAL tests.
 - `configs/`, `bin/`: generic debug configuration and optional diagnostic/tool-build helpers. Builds and tests do not access hardware.
 
-See [build instructions and dependency sources](docs/BUILD.md) and the [hardware bring-up summary](docs/bring-up.md). Generated firmware, downloaded dependencies, private logs, and device-specific identification records are intentionally excluded. Dependencies are fetched by exact commit and verified against [source hashes](docs/source-lock.json); they are not bundled in Git.
+See [actual SX1262 bring-up results and blocker](docs/radio-bring-up.md), [build instructions and dependency sources](docs/BUILD.md) and the [hardware bring-up summary](docs/bring-up.md). Generated firmware, downloaded dependencies, private logs, and device-specific identification records are intentionally excluded. Dependencies are fetched by exact commit and verified against [source hashes](docs/source-lock.json); they are not bundled in Git.
 
 **Do not treat this README alone as a flashable firmware release.** Only flash firmware built from reviewed and verified sources for the exact target MCU.
 

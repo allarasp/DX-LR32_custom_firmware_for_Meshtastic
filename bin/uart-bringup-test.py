@@ -11,9 +11,10 @@ import fcntl
 parser = argparse.ArgumentParser()
 parser.add_argument('--port', required=True)
 parser.add_argument('--timeout', type=float, default=180)
+parser.add_argument('--log-dir', type=Path)
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[1]
-logdir = root/'logs/bringup'
+logdir = args.log_dir if args.log_dir else root/'logs/bringup'
 logdir.mkdir(parents=True, exist_ok=True)
 fd = os.open(args.port, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
 fcntl.ioctl(fd, termios.TIOCEXCL)

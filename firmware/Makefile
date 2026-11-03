@@ -64,3 +64,27 @@ uart-check: uartdiag
 	$(HOSTCC) -std=c11 -Wall -Wextra -Werror -Iinclude tests/test_diagnostic_protocol.c src/diagnostic_protocol.c -o build/uartdiag/test_protocol
 	./build/uartdiag/test_protocol
 -include $(UART_OBJECTS:.o=.d)
+
+# Radio bring-up keeps the verified 115200 UART/clock; uartdiag remains recovery.
+RADIO_OBJECTS := build/radiodiag/startup.o build/radiodiag/uart_system.o build/radiodiag/uart_diag.o build/radiodiag/diagnostic_protocol.o build/radiodiag/radio_io.o build/radiodiag/radio_transport.o build/radiodiag/radio_diag.o build/radiodiag/memory.o build/sx126x.o
+.PHONY: radiodiag radio-check
+build/radiodiag:
+	mkdir -p $@
+build/radiodiag/%.o: src/%.c | build/radiodiag
+	$(CC) $(CFLAGS) -DRADIO_DIAGNOSTICS -c $< -o $@
+build/radiodiag/startup.o: src/startup.S | build/radiodiag
+	$(CC) $(ARCH) -g3 -c $< -o $@
+build/radiodiag/controller.elf: $(RADIO_OBJECTS) cx32l003f8.ld
+	$(CC) $(LDFLAGS) -Wl,-Map=build/radiodiag/controller.map $(RADIO_OBJECTS) -lgcc -o $@
+	$(SIZE) $@
+build/radiodiag/controller.bin: build/radiodiag/controller.elf
+	$(OBJCOPY) -O binary $< $@
+build/radiodiag/controller.hex: build/radiodiag/controller.elf
+	$(OBJCOPY) -O ihex $< $@
+radiodiag: build/radiodiag/controller.bin build/radiodiag/controller.hex
+radio-check: radiodiag
+	python3 tools/verify_sources.py
+	CROSS_COMPILE="$(CROSS_COMPILE)" python3 tests/check_image.py build/radiodiag/controller
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -DRADIO_DIAGNOSTICS -Iinclude -I$(VENDOR)/sx126x_driver/src tests/test_radio_diag.c src/radio_transport.c src/radio_diag.c src/diagnostic_protocol.c $(VENDOR)/sx126x_driver/src/sx126x.c -o build/radiodiag/test_radio
+	./build/radiodiag/test_radio
+-include $(RADIO_OBJECTS:.o=.d)
