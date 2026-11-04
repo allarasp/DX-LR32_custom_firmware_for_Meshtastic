@@ -28,6 +28,21 @@ static bool delay(uint32_t ms) {
 }
 
 static bool safe_command(bool read, const uint8_t *cmd, uint16_t count, uint16_t size) {
+#ifdef UART_RADIO_LIVE
+    if(read && ((cmd[0]==0x12&&count==2&&size==2) || (cmd[0]==0x13&&count==2&&size==2) ||
+       (cmd[0]==0x14&&count==2&&size==3) || (cmd[0]==0x1e&&count==3&&cmd[2]==0&&size<=255)))return true;
+    if(read && cmd[0]==0x1d&&count==4&&cmd[1]==8&&cmd[2]==0xd8&&size==1)return true;
+    if(!read) {
+      if(size==0 && ((cmd[0]==0x82&&count==4) || (cmd[0]==0x83&&count==4) ||
+        (cmd[0]==0x98&&count==3&&cmd[1]==0x6b&&cmd[2]==0x6f) ||
+        (cmd[0]==0x93&&count==2&&cmd[1]==0x20) || (cmd[0]==0x8f&&count==3) ||
+        (cmd[0]==0x08&&count==9) || (cmd[0]==0x02&&count==3) ||
+        (cmd[0]==0x95&&count==5&&cmd[1]==2&&cmd[2]==2&&cmd[3]==0&&cmd[4]==1) ||
+        (cmd[0]==0x8e&&count==3&&(int8_t)cmd[1]>=-9&&(int8_t)cmd[1]<=10&&cmd[2]==4)))return true;
+      if(cmd[0]==0x0e&&count==2&&size<=255)return true;
+      if(cmd[0]==0x0d&&count==3&&cmd[1]==8&&cmd[2]==0xd8&&size==1)return true;
+    }
+#endif
     /* Deliberate non-RF whitelist: SetTx, RX, FS, DIO2/DIO3 and RF setup blocked. */
     if (read) {
         return (cmd[0] == 0xc0 && count == 1 && size == 1) ||

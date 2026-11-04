@@ -1,19 +1,55 @@
-# DX-LR32 custom firmware for Meshtastic
+# DX-LR32 UART radio firmware
 
 Experimental firmware for using the **DX-LR32-A (433 MHz)** LoRa module as an external **UART-connected SX1262 radio controller**.
 
-The goal is to build a standalone Meshtastic messaging device with an **ESP32-2432S028 CYD touchscreen**, without requiring a phone or Bluetooth. The ESP32 would run the Meshtastic network stack and user interface; the DX-LR32's existing **CX32L003F8** microcontroller would control its SX1262 over SPI.
+The CX32 firmware is a raw LoRa radio controller usable by other UART host applications, with Meshtastic as the first integration. It does not parse Meshtastic packets or manage encryption.
 
-> **Work in progress — not yet Meshtastic-compatible.** The custom MCU firmware boots and UART diagnostics work on real hardware. The v0.3.0 binary UART controller supports dynamic integer-Hz frequency and LoRa/packet configuration in standby RC, with physical CH340 tests and partial SX1262 register readbacks. RX/TX remain disabled; requested TX power is staged only. LoRa packet communication and Meshtastic integration are **not yet verified**.
+The goal of the Meshtastic integration is to build a standalone Meshtastic messaging device with an **ESP32-2432S028 CYD touchscreen**, without requiring a phone or Bluetooth. The ESP32 would run the Meshtastic network stack and user interface; the DX-LR32's existing **CX32L003F8** microcontroller would control its SX1262 over SPI.
 
-**v0.3.1 is programmed, readback-verified and physically tested.** Its bounded
+> **Experimental — a two-way public-channel text exchange with a phone-connected 433 MHz LilyGO TTGO is verified.** The WSL bridge and meshctrl v0.4.0 exchanged real EU_433 LongFast messages. This establishes the tested text/profile path, not complete Meshtastic routing or feature compatibility. The CYD radio adapter still needs a wired test. See [peer-test evidence](docs/meshtastic-peer-test.md).
+
+**Current firmware: v0.5.0**, programmed and fully readback-verified. TX now
+uses the UART-selected LoRa modem/packet settings and power (-9..+10 dBm
+commanded), within the existing EU_433 frequency policy. Recovery, duplicate-TX
+protection, packet/error counters and asynchronous UART output are implemented.
+A new public-channel exchange received `Alr1 v050 ready`, delivered our reply to
+the phone, and received `V050 ok`. There was one transmission, at -9 dBm commanded.
+Size: **12,704 B Flash, 2,392 B static RAM + 1 KB stack**. See
+[v0.5.0 test evidence and build commands](docs/v0.5.0-results.md) and
+[general-purpose UART contract](docs/UART_LIVE.md). This is still experimental,
+not a fully qualified universal modem or a complete Meshtastic router.
+
+**The preserved v0.3.1 recovery image was programmed, readback-verified and physically tested.** Its bounded
 crystal diagnostic reported standby RC → XOSC → RC (`0x22 → 0x32 → 0x22`),
 zero errors at every step, and 18 ms elapsed. UART regression tests and binary
 PING/PONG pass. Build size is 7,664 B Flash and 992 B static SRAM plus 1 KB stack.
 See [measured oscillator results](docs/oscillator-test.md) and
 [RF-switch investigation](docs/rf-switch-investigation.md). PC3/PC4 remained
-undriven inputs; their unknown load still blocks active RF switching. RX/TX,
-DIO2 control and DIO3 TCXO control remain disabled. No RF transmission occurred.
+undriven inputs during that stage. The load remains unresolved. RX/TX,
+DIO2 control and DIO3 TCXO control remain disabled in that firmware.
+The oscillator diagnostic itself performed no RF operation.
+
+A later, explicitly authorized [RAM-only RX/TX experiment](docs/radio-rxtx-smoke-test.md)
+verified RX mode/RSSI and one -9 dBm-commanded four-byte transmission with TxDone
+at 433.500 MHz. No peer was used for that early smoke test; the later
+LongFast exchange is documented separately below. Flash v0.3.1 was unchanged; its normal RX/TX commands remain disabled.
+The RF-switch load remains unresolved, and safe sustained operation is not established.
+
+The separate experimental **meshctrl v0.4.0** image and WSL bridge passed a
+real public-channel round trip: the peer sent `Alr1 ready`, our one test packet
+arrived in the phone app, and the bridge received the peer's reply `Recived`.
+The radio was then returned to standby RC with zero errors and switch GPIOs
+released. v0.4.0 remains 11,784 B Flash / 1,304 B static SRAM + 1 KB stack;
+v0.3.1 remains a buildable recovery target. See [measured results](docs/meshtastic-peer-test.md),
+[WSL test guide](docs/MESHTASTIC_TEST.md) and [live UART additions](docs/UART_LIVE.md).
+
+A custom Meshtastic **2.7.26** build has also been uploaded to the two-USB
+ESP32-2432S028 CYD. Flash hashes, boot and the official serial API were verified. The revised UI
+adds calibrated touch, Prev/Menu/Next/Chat buttons and an on-screen keyboard;
+the user confirmed improved usability.
+EU_433/LongFast and Bluetooth are enabled, while RF TX is disabled. The CYD is
+not yet wired to the DX-LR32, so the adapter's end-to-end radio path is untested.
+See [CYD build/wiring](cyd/README.md) and [actual bring-up results](docs/cyd-bringup.md).
 
 ## Architecture
 
@@ -135,10 +171,15 @@ python3 bin/uart_radio.py readback
 python3 bin/uart_radio.py self-test
 ```
 
+For the current live image use `make -C firmware mesh-check` and
+`python3 bin/test_live_controller.py` for the physical non-transmitting regression
+(which briefly enters RX). The `self-test` above is only for the non-RF
+`uartctrl` recovery target.
+
 The utility discovers a single CH340 by-id port or accepts `--port`. SET operations stage RAM; APPLY performs the supported non-RF changes. The self-test restores a known baseline and never starts RX/TX. Persistent Meshtastic configuration stays on the ESP32. The binary image uses version/status/config/readback/link-stat commands and an additive binary PING/PONG in v0.3.1; `radiodiag` preserves the original text diagnostics as a separate recovery image.
 
 ## Radio notes
 
-The latest [RF-switch investigation](docs/rf-switch-investigation.md) confirms factory `9D 01` initialization **and** complementary PC3/PC4 direction outputs; the physical switch-control nets remain unresolved. The oscillator is now confirmed as a passive 32 MHz crystal, so DIO3 TCXO control must remain disabled. This analysis did not change v0.3.0 or activate RF.
+The latest [RF-switch investigation](docs/rf-switch-investigation.md) confirms factory `9D 01` initialization **and** complementary PC3/PC4 direction outputs; the user measured the switch controls to PC3/PC4 and accepted factory-style switching for operation. The component identity and load measurements remain unqualified. The oscillator is now confirmed as a passive 32 MHz crystal, so DIO3 TCXO control must remain disabled. This analysis did not change v0.3.0 or activate RF.
 
 This is the **433 MHz module variant**, not an 868 MHz radio. Frequency selection, output power, duty cycle, and regional configuration must comply with applicable rules. Never transmit without a suitable antenna and verified RF configuration.

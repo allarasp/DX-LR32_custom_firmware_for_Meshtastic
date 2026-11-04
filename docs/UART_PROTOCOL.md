@@ -10,6 +10,10 @@ routing and persistent settings. It sends resolved physical parameters and,
 when enabled in a future release, opaque raw LoRa packets. The CX32 does not
 calculate a Meshtastic frequency slot or parse encrypted mesh contents.
 
+A separate experimental **meshctrl v0.4.0** image implements RX/TX and one-shot
+arming; see [UART_LIVE.md](UART_LIVE.md). The disabled-operation statements below
+apply to the preserved v0.3.1 image. Wire framing remains version 1.
+
 ## Transport and framing
 
 115200 baud, 8 data bits, no parity, 1 stop bit; crossed TX/RX and common GND.
@@ -91,7 +95,7 @@ Most errors contain only that byte.
 
 | ID | Name | Request | Successful response after status |
 | ---: | --- | --- | --- |
-| 1 | GET_VERSION | empty | firmware major/minor/patch:u8 each, wire version:u8; currently 0/3/0/1 |
+| 1 | GET_VERSION | empty | firmware major/minor/patch:u8 each, wire version:u8; 0/3/1/1 for uartctrl; 0/4/0/1 for meshctrl |
 | 2 | GET_CAPABILITIES | empty | capability record below |
 | 3 | GET_RADIO_STATUS | empty | status record below |
 | 4 | SET_FREQUENCY | frequency_hz:u32 | empty; stages only |
@@ -343,3 +347,13 @@ Host commands: `python3 bin/uart_radio.py ping`, `rf_switch`, and `xosc`. The
 XOSC utility also compares configuration and RF-switch snapshots before/after
 and requires the final RC mode and zero errors. It does not retry a failure.
 See [oscillator-test.md](oscillator-test.md) for physical-test status.
+
+## Live general-purpose controller v0.5.0
+
+The wire protocol stays version 1. `meshctrl` v0.5.0 uses the existing staged
+PHY configuration for RX and TX, including UART-selected power. New command
+IDs 22/23 report radio/transport statistics; status 15 denotes a duplicate TX
+request; event 0x84 denotes finite RX timeout. Existing formats are unchanged.
+See [complete live-controller contract](UART_LIVE.md) for limits, capabilities,
+replay handling and recovery. The base v0.3.1 tables above describe the separate
+non-RF recovery image.

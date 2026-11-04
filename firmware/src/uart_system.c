@@ -10,7 +10,34 @@ volatile struct diagnostic_state diagnostic;
 static uint8_t receive_ring[512];
 static volatile uint16_t receive_head, receive_tail;
 static volatile uint32_t receive_losses;
+#ifndef UART_RADIO_LIVE
 static volatile bool transmit_done;
+#endif
+#ifdef UART_RADIO_LIVE
+#include "uart_tx_ring.h"
+static struct uart_tx_ring transmit_ring;
+static volatile bool transmit_busy;
+static volatile uint32_t transmit_at,transmit_faults;
+unsigned diag_uart_tx_free(void) {return uart_tx_free(&transmit_ring);}
+uint32_t diag_uart_tx_faults(void) {return transmit_faults;}
+static void transmit_next(void) {
+    uint8_t b;
+    if(uart_tx_pop(&transmit_ring,&b)) {
+        transmit_busy=true;transmit_at=diagnostic.ticks;UART0->SBUF=b;
+    }else transmit_busy=false;
+}
+bool diag_uart_tx_poll(void) {
+    if(!transmit_busy || (uint32_t)(diagnostic.ticks-transmit_at)<100u)return true;
+    NVIC_DisableIRQ(UART0_IRQn);
+    /* Recheck after masking: the ISR may have advanced since the first read. */
+    bool stalled=transmit_busy && (uint32_t)(diagnostic.ticks-transmit_at)>=100u;
+    if(stalled) {
+        transmit_ring.tail=transmit_ring.head;transmit_busy=false;
+        UART0->INTCLR=UART_INTCLR_TICLR_Msk;++transmit_faults;
+    }
+    NVIC_EnableIRQ(UART0_IRQn);return !stalled;
+}
+#endif
 uint32_t diag_uart_loss_count(void) { return receive_losses; }
 void UART0_IRQHandler(void) {
     uint32_t flags = UART0->INTSR;
@@ -30,7 +57,11 @@ void UART0_IRQHandler(void) {
     }
     if (flags & UART_INTSR_TI_Msk) {
         UART0->INTCLR = UART_INTCLR_TICLR_Msk;
+#ifdef UART_RADIO_LIVE
+        ++diagnostic.tx_bytes;transmit_next();
+#else
         transmit_done = true;
+#endif
     }
 }
 #endif
@@ -136,6 +167,12 @@ bool diag_uart_get(uint8_t *byte) {
 }
 
 bool diag_uart_put(uint8_t byte) {
+#ifdef UART_RADIO_LIVE
+    if(!uart_tx_push(&transmit_ring,byte))return false;
+    NVIC_DisableIRQ(UART0_IRQn);
+    if(!transmit_busy) {UART0->INTCLR=UART_INTCLR_TICLR_Msk;transmit_next();}
+    NVIC_EnableIRQ(UART0_IRQn);return true;
+#else
     UART0->INTCLR = UART_INTCLR_TICLR_Msk;
 #ifdef UART_RADIO_PROTOCOL
     transmit_done = false;
@@ -155,4 +192,5 @@ bool diag_uart_put(uint8_t byte) {
     }
     ++diagnostic.tx_bytes;
     return true;
+#endif
 }

@@ -1,0 +1,37 @@
+#pragma once
+#define USE_DXLR_UART
+#define HAS_SCREEN 1
+#define HAS_TOUCHSCREEN 1
+#define USE_VIRTUAL_KEYBOARD
+#define HAS_WIRE 0
+#define HAS_GPS 0
+#define HAS_BUTTON 1
+#define BUTTON_PIN 0
+#define BUTTON_NEED_PULLUP
+#define USE_TFTDISPLAY 1
+#define CYD_ST7789
+#define ILI9341_SPI_HOST VSPI_HOST
+#define SCREEN_ROTATE
+#define TFT_WIDTH 240
+#define TFT_HEIGHT 320
+#define TFT_OFFSET_X 0
+#define TFT_OFFSET_Y 0
+#define TFT_BUSY -1
+#define TFT_MISO 12
+#define TFT_MOSI 13
+#define TFT_SCLK 14
+#define TFT_CS 15
+#define TFT_DC 2
+#define TFT_RST -1
+#define TFT_BL 21
+#define TFT_BACKLIGHT_ON HIGH
+#define SPI_FREQUENCY 27000000
+#define SPI_READ_FREQUENCY 16000000
+#define SCREEN_TRANSITION_FRAMERATE 5
+#define DXLR_RX_PIN 22
+#define DXLR_TX_PIN 27
+#define TOUCH_CS 33
+#define TOUCH_IRQ 36
+#define TOUCH_SCLK 25
+#define TOUCH_MOSI 32
+#define TOUCH_MISO 39

@@ -18,5 +18,7 @@ extern struct rc_config rc_pending,rc_active;
 extern bool rc_active_valid;
 extern uint32_t rc_generation;
 uint8_t rc_init(void);
+void rc_invalidate(void);
+int rc_bandwidth_code(uint32_t bandwidth);
 uint16_t rc_handle(uint8_t command,const uint8_t *data,uint16_t length,uint8_t *reply);
 #endif

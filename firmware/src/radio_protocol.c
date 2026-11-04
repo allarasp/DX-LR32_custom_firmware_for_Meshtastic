@@ -9,8 +9,9 @@ static void escaped(struct rp_parser *p,uint8_t b) {
     if(b==0x7e || b==0x7d) { p->write(0x7d); p->write(b^0x20); }
     else p->write(b);
 }
-void rp_emit(struct rp_parser *p,uint8_t kind,uint8_t cmd,uint16_t seq,const uint8_t *data,uint16_t n) {
-    if(n>RP_MAX_PAYLOAD) return;
+bool rp_emit(struct rp_parser *p,uint8_t kind,uint8_t cmd,uint16_t seq,const uint8_t *data,uint16_t n) {
+    if(n>RP_MAX_PAYLOAD) return false;
+    if(p->can_emit && !p->can_emit(kind,(uint16_t)(2*(n+9)+2))) {++p->tx_drops;return false;}
     uint8_t header[7]={RP_VERSION,kind,cmd,0,0,0,0};
     rp_put16(header+3,seq); rp_put16(header+5,n);
     uint16_t crc=0xffff;
@@ -18,6 +19,7 @@ void rp_emit(struct rp_parser *p,uint8_t kind,uint8_t cmd,uint16_t seq,const uin
     for(unsigned i=0;i<7;++i) {crc=rp_crc_byte(crc,header[i]);escaped(p,header[i]);}
     for(unsigned i=0;i<n;++i) {crc=rp_crc_byte(crc,data[i]);escaped(p,data[i]);}
     escaped(p,(uint8_t)crc);escaped(p,(uint8_t)(crc>>8));p->write(0x7e);
+    return true;
 }
 void rp_init(struct rp_parser *p,rp_write_fn write,rp_handler_fn handler) {
     *p=(struct rp_parser){0};p->write=write;p->handler=handler;

@@ -15,6 +15,11 @@ void diag_watchdog_feed(void);
 void diag_uart_init(void);
 bool diag_uart_get(uint8_t *byte);
 bool diag_uart_put(uint8_t byte);
+#ifdef UART_RADIO_LIVE
+unsigned diag_uart_tx_free(void);
+uint32_t diag_uart_tx_faults(void);
+bool diag_uart_tx_poll(void);
+#endif
 
 struct diagnostic_line {
     char text[32];

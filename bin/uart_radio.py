@@ -15,10 +15,10 @@ VERSION = 1
 MAX_PAYLOAD = 272
 COMMANDS = dict(version=1, caps=2, status=3, frequency=4, lora=5, packet=6,
                 power=7, apply=8, start_rx=9, stop_rx=10, send=11, errors=12,
-                reset=13, config=14, mode=15, stats=16, readback=17, xosc=18, rf_switch=19, ping=20)
+                reset=13, config=14, mode=15, stats=16, readback=17, xosc=18, rf_switch=19, ping=20, arm_tx=21, radio_stats=22, transport_stats=23)
 STATUS = ('OK', 'VERSION', 'FRAME', 'CRC', 'TIMEOUT', 'UNKNOWN', 'LENGTH',
           'RANGE', 'COMBINATION', 'UNSUPPORTED', 'RADIO_ERROR', 'NOT_READY',
-          'READBACK', 'DISABLED', 'OVERFLOW')
+          'READBACK', 'DISABLED', 'OVERFLOW', 'DUPLICATE')
 
 def encode(command, seq, payload=b'', kind=0, version=VERSION, bad_crc=False, allow_oversize=False):
     if len(payload) > MAX_PAYLOAD and not allow_oversize:
@@ -60,6 +60,11 @@ def describe(command, reply):
         return dict(state=reply[1], last_error=reply[2], activation_enabled=bool(reply[3]), direction_mask=reply[4],
                     open_drain_mask=reply[5], pull_bits=struct.unpack_from('<H',reply,6)[0],
                     alternate_bits=struct.unpack_from('<I',reply,8)[0], input_mask=reply[12], latch_mask=reply[13])
+    if command == 23 and len(reply) == 11:
+        return dict(dropped_output_frames=struct.unpack_from('<I',reply,1)[0],tx_stalls=struct.unpack_from('<I',reply,5)[0],tx_queue_free=struct.unpack_from('<H',reply,9)[0])
+    if command == 22 and len(reply) == 37:
+        return dict(zip(('rx_packets','rx_rejected','rx_read_errors','rx_timeouts','tx_attempts',
+                         'tx_done','tx_errors','cleanup_errors','duplicate_tx_requests'),struct.unpack_from('<9I',reply,1)))
     if command == 17 and len(reply) == 6:
         return dict(packet_type=reply[1], sync_word=struct.unpack_from('<H',reply,2)[0], iq_register=reply[4], tx_modulation_register=reply[5])
     return {}
@@ -175,7 +180,7 @@ class Link:
 
 
 def configure(link, frequency=433875000, sf=11, bandwidth=250000, cr=5, ldro=0,
-              preamble=16, sync=0x24b4, header=0, crc=1, iq=0, length=255, power=10):
+              preamble=16, sync=0x24b4, header=0, crc=1, iq=0, length=255, power=-9):
     link.request(4, struct.pack('<I', frequency))
     link.request(5, struct.pack('<BIBB', sf, bandwidth, cr, ldro))
     link.request(6, struct.pack('<HHBBBB', preamble, sync, header, crc, iq, length))
@@ -261,8 +266,8 @@ def main():
     parser.add_argument('--crc', type=int, choices=(0,1), default=1)
     parser.add_argument('--iq', type=int, choices=(0,1), default=0)
     parser.add_argument('--length', type=int, default=255)
-    parser.add_argument('--power', type=int, default=10)
-    parser.add_argument('command', choices=('self-test','configure','version','caps','status','config','errors','reset','stats','readback','xosc','rf_switch','ping'), default='status', nargs='?')
+    parser.add_argument('--power', type=int, default=-9)
+    parser.add_argument('command', choices=('self-test','configure','version','caps','status','config','errors','reset','stats','readback','xosc','rf_switch','ping','radio_stats','transport_stats'), default='status', nargs='?')
     args = parser.parse_args()
     ports = list(Path('/dev/serial/by-id').glob('usb-1a86_*'))
     if not args.port and len(ports) != 1:

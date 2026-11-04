@@ -148,6 +148,75 @@ are external bias observations, not proof of a safe output load or RF path.
 No PC3/PC4 drive, DIO2/DIO3 control, or RF operation was performed. See
 [oscillator test results](oscillator-test.md) for commands and evidence.
 
+## User-authorized GPIO pulse — 2026-11-04
+
+After the v0.3.1 oscillator stage, the user explicitly authorized testing the
+factory PC3/PC4 states. This superseded the earlier prohibition for this one
+controlled experiment. The installed v0.3.1 firmware remains unchanged and
+still has no active RF-switch command or actuator backend.
+
+A 116-byte Thumb routine was temporarily placed in unused SRAM at 0x20000600,
+with samples at 0x20000700. It disabled interrupts, preloaded the RX latch
+before enabling push-pull outputs, then performed the factory order:
+
+1. RX: PC3 HIGH, PC4 LOW.
+2. TX logic: clear PC3, then set PC4.
+3. RX logic: set PC3, then clear PC4.
+4. Release both pins to inputs and restore the original latch.
+
+Each stable state used a finite 255-iteration CPU settle loop. TX exposure
+was limited by that loop and a short sample routine, not a host/USB delay.
+Exact pulse width was not measured; nominal timing is of order tens of
+microseconds at the configured 22.12 MHz clock. The helper reached its expected
+breakpoint after releasing the pads. Saved helper SRAM and CPU registers were
+restored. No Flash erase/programming, radio TX/RX/FS, PA, DIO2 or DIO3 control
+was performed by the pulse test. GPIO pull/type/mux configuration was validated
+before execution and not changed by the routine.
+
+Actual masked samples (0x18 selects PC3/PC4):
+
+| Phase | DIRCR | ODR | IDR | Interpretation |
+| --- | --- | --- | --- | --- |
+| Before | 0x00 | 0x00 | 0x08 | Inputs; PC3 reads HIGH |
+| RX | 0x18 | 0x08 | 0x08 | PC3 HIGH / PC4 LOW |
+| TX logic | 0x18 | 0x10 | 0x10 | PC3 LOW / PC4 HIGH |
+| RX restored | 0x18 | 0x08 | 0x08 | PC3 HIGH / PC4 LOW |
+| Inputs restored | 0x00 | 0x00 | 0x08 | Both released |
+
+This establishes that the GPIO pad input readbacks followed the brief requested
+states. It does **not** identify the RF-switch part, measure control current or
+rail transients, establish safe continuous drive, or verify RF routing. In
+particular, PC3 reaching logic LOW does not exclude an excessive sink current.
+The approximately 100-ohm path therefore remains unresolved. No sustained
+TX-state or RF test was attempted.
+
+### Debugger side effect and recovery
+
+The preflight used OpenOCD `verify_image` with work-area-backup disabled in the
+existing programming configuration. Source inspection of
+`src/target/armv7m.c:armv7m_checksum_memory` shows that it loads and executes a CRC
+helper in the target work area, which begins at application SRAM 0x20000000.
+Post-pulse UART exhibited stale responses and a configuration-generation jump
+(from 6 before the pulse stage to 90 afterward), so preservation of application
+runtime state cannot be claimed. This is a debugger-induced RAM disturbance;
+the pin pulse itself is evidenced by the independent recorded samples.
+
+The documented full-MCU reset was then performed to reinitialize the unchanged
+v0.3.1 image. PING returned `00 50 4F 4E 47`; GET_STATUS returned standby RC
+0x22, errors 0, active_valid=false, dirty=true, generation 1, as expected after
+reset. GET_RF_SWITCH returned `0000000000000000000000000800` (inputs, no pulls
+or alternate functions, activation disabled). Persistent firmware was not
+modified. Future live identity/image checks must use a direct Flash dump and
+host comparison, or a separately validated backed-up work area, rather than
+this unbacked target checksum operation.
+
+Local evidence is retained under `logs/rf-switch-test/`: `pulse.S`, `pulse.elf`,
+`pulse.bin`, `pulse.log`, `snapshots.bin`, `preflight.log`, `before-radio.*`,
+`after-{ping,radio,gpio}.*`, `post-test-reset.log`, and
+`restarted-{ping,status,gpio}.*`. The private OpenOCD invocation was
+`tools/openocd-cx32/bin/openocd -f configs/bringup-rf-switch-pulse.cfg`.
+The pulse has not been repeated.
+
 ## Archived offline investigation — 2026-11-04
 
 The remainder records the earlier read-only analysis and its then-current
@@ -467,3 +536,24 @@ direct-file download returned HTTP 403, so no downloaded PDF hash is claimed.
 Raw factory images, full disassembly, identifiers and local logs are not pushed.
 For QFN orientation use the [hardware pin-counting guide](hardware-photos-and-pin-counting.md);
 for MCU pin functions use the [vendor CX32L003 datasheet](https://www.zbitsemi.com/upload/file/20200903/20200903105452_99571.pdf).
+
+
+## Later user-authorized finite RX/TX experiment
+
+The subsequent [RX/TX smoke test](radio-rxtx-smoke-test.md) drove the factory
+GPIO states during one finite RX window and one low-power packet TX. RX mode,
+RSSI, expected receive timeout and TxDone were observed with zero device errors;
+both pads were released afterward. No current or RF-power measurement was made.
+This supersedes the earlier stage’s no-RF-operation scope only for that explicit
+experiment; it does not identify the switch or establish safe sustained drive.
+The installed v0.3.1 firmware remains unchanged and its normal RF commands stay
+disabled.
+
+## Operational acceptance for v0.5.0
+
+The user accepted the existing factory-style PC3/PC4 switching for continued
+RX/TX testing. v0.5.0 uses that same control scheme, with stronger input-release
+cleanup and GPIO validation. The public-channel peer exchange passed again.
+This operational acceptance removes an implementation approval gate; it does
+not identify the switch IC or establish measured current, temperature or RF
+output. DIO2 and DIO3 control remain disabled.

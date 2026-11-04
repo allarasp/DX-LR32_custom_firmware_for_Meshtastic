@@ -14,7 +14,7 @@ static uint16_t device_errors;
 static uint16_t applied_mask,readback_mask;
 static const uint32_t bandwidths[]={7800,10400,15600,20800,31250,41700,62500,125000,250000,500000};
 static const uint8_t bw_codes[]={0,8,1,9,2,10,3,4,5,6};
-static int bandwidth_code(uint32_t bw) {
+int rc_bandwidth_code(uint32_t bw) {
     for(unsigned i=0;i<sizeof(bandwidths)/sizeof(bandwidths[0]);++i) if(bw==bandwidths[i]) return bw_codes[i];
     return -1;
 }
@@ -43,7 +43,13 @@ static uint8_t reset(void) {
         status() && errors() && device_errors==0 ? RP_OK:RP_RADIO_ERROR;
 }
 uint8_t rc_init(void) {
-    rc_pending=(struct rc_config){433875000,250000,16,0x24b4,11,5,0,0,1,0,255,10};
+    rc_pending=(struct rc_config){433875000,250000,16,0x24b4,11,5,0,0,1,0,255,
+#ifdef UART_RADIO_LIVE
+        -9
+#else
+        10
+#endif
+    };
     rc_active=(struct rc_config){0};rc_generation=0;radio_io_init();
     enum rf_switch_error pins=rf_switch_init();
     uint8_t result=reset();return pins==RF_SWITCH_OK?result:RP_READBACK;
@@ -51,7 +57,7 @@ uint8_t rc_init(void) {
 static uint8_t valid(const struct rc_config *c) {
     if(c->frequency<RC_MODULE_MIN || c->frequency>RC_MODULE_MAX) return RP_UNSUPPORTED;
     if(c->frequency<RC_POLICY_MIN || c->frequency>RC_POLICY_MAX) return RP_RANGE;
-    if(bandwidth_code(c->bandwidth)<0 || c->sf<5 || c->sf>12 || c->cr<5 || c->cr>8 || c->ldro>1 ||
+    if(rc_bandwidth_code(c->bandwidth)<0 || c->sf<5 || c->sf>12 || c->cr<5 || c->cr>8 || c->ldro>1 ||
        c->header>1 || c->crc>1 || c->iq>1 || c->payload==0 || c->preamble<8 ||
        c->power < -9 || c->power>RC_POWER_MAX) return RP_RANGE;
     if(c->frequency-RC_POLICY_MIN<c->bandwidth/2 || RC_POLICY_MAX-c->frequency<c->bandwidth/2 ||
@@ -63,7 +69,7 @@ static uint8_t apply(void) {
     uint8_t result=valid(&rc_pending);
     if(result) return result; /* Invalid candidate never changes the radio/active snapshot. */
     rc_active_valid=false;applied_mask=readback_mask=0;++rc_generation;dirty=true;
-    sx126x_mod_params_lora_t m={(sx126x_lora_sf_t)rc_pending.sf,(sx126x_lora_bw_t)bandwidth_code(rc_pending.bandwidth),
+    sx126x_mod_params_lora_t m={(sx126x_lora_sf_t)rc_pending.sf,(sx126x_lora_bw_t)rc_bandwidth_code(rc_pending.bandwidth),
         (sx126x_lora_cr_t)(rc_pending.cr-4),rc_pending.ldro};
     sx126x_pkt_params_lora_t pkt={rc_pending.preamble,(sx126x_lora_pkt_len_modes_t)rc_pending.header,
         rc_pending.payload,rc_pending.crc!=0,rc_pending.iq!=0};
@@ -168,7 +174,7 @@ uint16_t rc_handle(uint8_t cmd,const uint8_t *p,uint16_t n,uint8_t *out) {
     case RP_SET_LORA:
         if(n!=7) break;
         candidate.sf=p[0];candidate.bandwidth=rp_u32(p+1);candidate.cr=p[5];candidate.ldro=p[6];
-        if(candidate.sf<5 || candidate.sf>12 || bandwidth_code(candidate.bandwidth)<0 || candidate.cr<5 || candidate.cr>8 || candidate.ldro>1) {out[0]=RP_RANGE;return 1;}
+        if(candidate.sf<5 || candidate.sf>12 || rc_bandwidth_code(candidate.bandwidth)<0 || candidate.cr<5 || candidate.cr>8 || candidate.ldro>1) {out[0]=RP_RANGE;return 1;}
         goto stage;
     case RP_SET_PACKET:
         if(n!=8) break;
@@ -228,4 +234,9 @@ uint16_t rc_handle(uint8_t cmd,const uint8_t *p,uint16_t n,uint8_t *out) {
     out[0]=RP_LENGTH;return 1;
 stage:
     rc_pending=candidate;dirty=true;return 1;
+}
+
+/* Live-radio recovery only; discarded from the legacy image. */
+void rc_invalidate(void) {
+    rc_active_valid=false;dirty=true;applied_mask=readback_mask=0;++rc_generation;
 }

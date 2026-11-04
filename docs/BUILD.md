@@ -172,3 +172,35 @@ the host C protocol suite also passed AddressSanitizer/UndefinedBehaviorSanitize
 The deployed-image symbol inspection contains RF-switch inspection/init only;
 the planner and denied actuator request are discarded. Physical flashing and
 oscillator results are tracked separately in [oscillator-test.md](oscillator-test.md).
+
+
+## Experimental live-radio preparation
+
+`make -C firmware mesh-check` builds the separate `meshctrl` v0.4.0 image,
+validates the ELF and runs host RX/TX/event tests with ASan/UBSan. Its output is
+`firmware/build/meshctrl/controller.{elf,bin,hex,map}`: 11,784 B Flash, 1,304 B
+static SRAM and 1,024 B reserved stack. The physical target is running this
+experimental image after direct readback verification; the original `uartctrl`
+v0.3.1 binary still matches its preserved hash. For host dependencies, codec tests
+and peer commands see [MESHTASTIC_TEST.md](MESHTASTIC_TEST.md). All builds are
+hardware-independent; only the explicit host bridge opens USB-UART.
+
+## Current live general-purpose build: v0.5.0
+
+```sh
+make -C firmware -j2 check radio-check uart-check protocol-check mesh-check
+.venv/bin/python firmware/tests/test_meshtastic_bridge.py
+sh cyd/tests/check.sh
+sh experiments/radio-smoke/check.sh
+# Physical UART configuration/brief RX test, never TX:
+python3 bin/test_live_controller.py
+```
+
+The retained `meshctrl` target now produces v0.5.0: 12,704 B Flash and 2,392 B
+static RAM plus a reserved 1,024 B stack, leaving 680 B outside those allocations.
+The measured stack touched span in the recorded test was 552 B; this is not a
+worst-case proof. Earlier size/result tables are historical. Rebuilding the
+separate v0.3.1 recovery source after shared parser changes produces 7,688 B
+Flash / 1,000 B static RAM; the original 7,664 B recovery image is retained
+locally. The original v0.4.0 live image is also saved locally before programming.
+See [complete release evidence](v0.5.0-results.md).

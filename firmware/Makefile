@@ -115,3 +115,31 @@ protocol-check: uartctrl
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude tests/test_rf_switch.c src/rf_switch.c -o build/uartctrl/test_rf_switch
 	./build/uartctrl/test_rf_switch
 -include $(CONTROL_OBJECTS:.o=.d)
+
+# Separate experimental live-radio image; never replaces uartctrl implicitly.
+LIVE_OBJECTS := $(addprefix build/meshctrl/,startup.o uart_system.o uart_control.o radio_protocol.o radio_control.o rf_switch.o radio_io.o radio_transport.o radio_live.o radio_live_io.o memory.o) build/sx126x.o
+.PHONY: meshctrl mesh-check
+build/meshctrl:
+	mkdir -p $@
+build/meshctrl/%.o: src/%.c | build/meshctrl
+	$(CC) $(CFLAGS) -DUART_RADIO_PROTOCOL -DUART_RADIO_LIVE -c $< -o $@
+build/meshctrl/startup.o: src/startup.S | build/meshctrl
+	$(CC) $(ARCH) -g3 -c $< -o $@
+build/meshctrl/controller.elf: $(LIVE_OBJECTS) cx32l003f8.ld
+	$(CC) $(LDFLAGS) -Wl,-Map=build/meshctrl/controller.map $(LIVE_OBJECTS) -lgcc -o $@
+	$(SIZE) $@
+build/meshctrl/controller.bin: build/meshctrl/controller.elf
+	$(OBJCOPY) -O binary $< $@
+build/meshctrl/controller.hex: build/meshctrl/controller.elf
+	$(OBJCOPY) -O ihex $< $@
+meshctrl: build/meshctrl/controller.bin build/meshctrl/controller.hex
+mesh-check: meshctrl
+	$(HOSTCC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -DUART_RADIO_LIVE -DUART_RADIO_PROTOCOL -Iinclude -I$(VENDOR)/sx126x_driver/src tests/test_live_transport.c src/radio_transport.c src/radio_protocol.c -o build/meshctrl/test_live_transport
+	./build/meshctrl/test_live_transport
+	$(HOSTCC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Itests/gpio-stubs -Iinclude tests/test_live_io.c src/radio_live_io.c -o build/meshctrl/test_live_io
+	./build/meshctrl/test_live_io
+	$(HOSTCC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffunction-sections -fdata-sections -Wl,--gc-sections -fsanitize=address,undefined -Iinclude -I$(VENDOR)/sx126x_driver/src -DUART_RADIO_LIVE tests/test_radio_live.c src/radio_live.c src/radio_protocol.c $(VENDOR)/sx126x_driver/src/sx126x.c -o build/meshctrl/test_live
+	./build/meshctrl/test_live
+	python3 tools/verify_sources.py
+	CROSS_COMPILE="$(CROSS_COMPILE)" python3 tests/check_image.py build/meshctrl/controller
+-include $(LIVE_OBJECTS:.o=.d)
