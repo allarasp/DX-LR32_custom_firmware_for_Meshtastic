@@ -70,6 +70,8 @@ Each of these five external signal lines has a measured **100 Ω series resistor
 
 Ensure a single safe power arrangement before connecting a programmer or USB–UART adapter.
 
+For QFN pin-1 orientation and counterclockwise physical pin numbering, SWD pad numbering, and photos taken after removal of the RF shield, see the [hardware photographs and pin-counting guide](docs/hardware-photos-and-pin-counting.md).
+
 ## Verified progress
 
 - [x] Mapped MCU↔SX1262, external UART, and SWD connections.
