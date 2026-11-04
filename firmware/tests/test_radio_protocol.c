@@ -4,6 +4,7 @@
 #include "radio_protocol.h"
 #include "radio_control.h"
 #include "radio_diag.h"
+#include "rf_switch.h"
 #include "sx126x.h"
 #include "sx126x_hal.h"
 
@@ -12,17 +13,26 @@ static unsigned frame_size,transfers,calls;
 static bool selected,reset_low,busy,spi_fault,timer_fault,corrupt_sync;
 static uint32_t now;
 static uint32_t pll_word;
+static uint8_t chip_mode=2;
+static uint16_t chip_errors;
+static bool xosc_wrong_mode,xosc_busy,xosc_error;
+static struct rf_switch_gpio switch_gpio;
+void rf_switch_read_gpio(struct rf_switch_gpio *out) {*out=switch_gpio;}
 void radio_io_init(void) {}
 uint32_t radio_io_millis(void) {return now;}
 void radio_io_idle(void) {++now;}
 bool radio_io_delay(uint32_t ms) {now+=ms;return !timer_fault;}
 bool radio_io_busy(void) {return busy;}
 bool radio_io_dio1(void) {return false;}
-void radio_io_reset(bool low) {reset_low=low;if(low) {packet_type=0;memset(registers,0,sizeof(registers));}}
+void radio_io_reset(bool low) {reset_low=low;if(low) {packet_type=0;chip_mode=2;chip_errors=0;memset(registers,0,sizeof(registers));}}
 uint32_t radio_io_spi_flags(void) {return 0;}
 void radio_io_select(bool active) {
     if(!active && selected) {
         ++transfers;
+        if(frame_bytes[0]==0x80 && frame_size==2) {
+            if(frame_bytes[1]==0) chip_mode=2;
+            else {chip_mode=xosc_wrong_mode?2:3;if(xosc_busy) busy=true;if(xosc_error) chip_errors=0x20;}
+        }
         if(frame_bytes[0]==0x8a && frame_size==2) packet_type=frame_bytes[1];
         if(frame_bytes[0]==0x86 && frame_size==5)
             pll_word=(uint32_t)frame_bytes[1]<<24 | (uint32_t)frame_bytes[2]<<16 | (uint32_t)frame_bytes[3]<<8 | frame_bytes[4];
@@ -38,7 +48,9 @@ bool radio_io_spi(uint8_t tx,uint8_t *rx) {
     assert(selected);if(spi_fault) return false;
     unsigned i=frame_size++;assert(i<sizeof(frame_bytes));frame_bytes[i]=tx;*rx=i==1?0xa2:0;
     uint8_t cmd=frame_bytes[0];
-    if(cmd==0xc0 && i==1) *rx=raw;
+    if(cmd==0xc0 && i==1) *rx=(uint8_t)((raw&0x8fu) | chip_mode<<4);
+    if(cmd==0x17 && i==2) *rx=(uint8_t)(chip_errors>>8);
+    if(cmd==0x17 && i==3) *rx=(uint8_t)chip_errors;
     if(cmd==0x11 && i==2) *rx=packet_type;
     if(cmd==0x1d && i>=4) {
         unsigned address=((unsigned)frame_bytes[1]<<8 | frame_bytes[2])+i-4;
@@ -87,8 +99,9 @@ int main(int argc,char **argv) {
     uint16_t crc=0xffff;for(const char *p="123456789";*p;++p) crc=rp_crc_byte(crc,(uint8_t)*p);
     assert(crc==0x29b1);
     rp_init(&parser,put,handle);assert(rc_init()==RP_OK);
-    assert(command(RP_GET_VERSION,NULL,0)==RP_OK && decoded[8]==0 && decoded[9]==3 && decoded[10]==0);
+    assert(command(RP_GET_VERSION,NULL,0)==RP_OK && decoded[8]==0 && decoded[9]==3 && decoded[10]==1);
     assert(rp_u16(decoded+3)==0x7e7d);
+    assert(command(RP_PING,NULL,0)==RP_OK && memcmp(decoded+8,"PONG",4)==0);
     assert(command(RP_GET_CAPABILITIES,NULL,0)==RP_OK && rp_u32(decoded+7+10)==RC_MODULE_MIN);
     assert(command(RP_APPLY,NULL,0)==RP_OK && rc_active_valid && pll_word==sx126x_convert_freq_in_hz_to_pll_step(433875000));
     assert(registers[0x740]==0x24 && registers[0x741]==0xb4 && packet_type==1);
@@ -141,6 +154,33 @@ int main(int argc,char **argv) {
     raw=0xff;assert(command(RP_APPLY,NULL,0)==RP_RADIO_ERROR);raw=0x22;
     timer_fault=true;assert(command(RP_RESET,NULL,0)==RP_RADIO_ERROR && !reset_low);timer_fault=false;
     assert(command(RP_RESET,NULL,0)==RP_OK && !rc_active_valid);assert(command(RP_APPLY,NULL,0)==RP_OK);
+    generation=rc_generation;
+    assert(command(RP_GET_RF_SWITCH,NULL,0)==RP_OK && decoded[8]==RF_SWITCH_UNDRIVEN && decoded[10]==0);
+    assert(command(RP_TEST_XOSC,NULL,0)==RP_OK && rp_u16(decoded+8)==255);
+    assert(decoded[10]==0x22 && decoded[11]==0x32 && decoded[12]==0x22);
+    assert(rc_active_valid && rc_generation==generation && chip_mode==2);
+    assert(command(RP_TEST_XOSC,payload,1)==RP_LENGTH);
+    xosc_wrong_mode=true;
+    assert(command(RP_TEST_XOSC,NULL,0)==RP_READBACK && decoded[7+12]==5);
+    assert(decoded[7+5]==0x22 && (rp_u16(decoded+8)&0xe0)==0xe0 && !rc_active_valid);
+    xosc_wrong_mode=false;
+    assert(command(RP_APPLY,NULL,0)==RP_OK);
+    xosc_error=true;
+    assert(command(RP_TEST_XOSC,NULL,0)==RP_RADIO_ERROR && decoded[7+12]==6);
+    assert(rp_u16(decoded+7+8)==0x20 && rp_u16(decoded+7+10)==0x20 && chip_mode==2);
+    xosc_error=false;
+    /* Explicit mock reset clears injected errors; the diagnostic never does. */
+    assert(command(RP_RESET,NULL,0)==RP_OK);
+    xosc_busy=true;uint32_t started=now;
+    assert(command(RP_TEST_XOSC,NULL,0)==RP_RADIO_ERROR && decoded[7+12]==4);
+    assert(decoded[7+13]==RADIO_LINK_BUSY_TIMEOUT && now-started<1000 && !selected);
+    xosc_busy=false;busy=false;
+    assert(command(RP_RESET,NULL,0)==RP_OK);
+    switch_gpio.direction=8;
+    assert(command(RP_TEST_XOSC,NULL,0)==RP_READBACK && decoded[7+12]==10 && chip_mode==2);
+    assert(command(RP_GET_RF_SWITCH,NULL,0)==RP_READBACK);
+    switch_gpio.direction=0;
+    assert(command(RP_APPLY,NULL,0)==RP_OK);
     before=transfers;uint8_t unsafe[][5]={{0x83},{0x82},{0xc1},{0x9d},{0x97},{0x8e},{0x95},{0x86,0x36,0x40,0,0}};
     for(unsigned i=0;i<sizeof(unsafe)/sizeof(unsafe[0]);++i) assert(sx126x_hal_write(NULL,unsafe[i],5,NULL,0)==SX126X_HAL_STATUS_ERROR);
     assert(transfers==before);

@@ -75,3 +75,11 @@ bool radio_io_spi(uint8_t tx, uint8_t *rx) {
         if ((uint32_t)(diagnostic.ticks - start) >= 10u || --remaining == 0) { return false; }
     }
 }
+
+/* RF switch remains undriven. These are reads, including latch/pad diagnostics. */
+#include "rf_switch.h"
+void rf_switch_read_gpio(struct rf_switch_gpio *g) {
+    g->direction=GPIOC->DIRCR;g->type=GPIOC->OTYPER;
+    g->pulls=GPIOC->PUPDR;g->alternate=GPIOC->AFR;
+    g->input=GPIOC->IDR;g->latch=GPIOC->ODR;
+}

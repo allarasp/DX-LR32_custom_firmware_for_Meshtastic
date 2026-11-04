@@ -90,7 +90,7 @@ radio-check: radiodiag
 -include $(RADIO_OBJECTS:.o=.d)
 
 # Versioned binary UART controller. Recovery/legacy targets remain separate.
-CONTROL_OBJECTS := $(addprefix build/uartctrl/,startup.o uart_system.o uart_control.o radio_protocol.o radio_control.o radio_io.o radio_transport.o memory.o) build/sx126x.o
+CONTROL_OBJECTS := $(addprefix build/uartctrl/,startup.o uart_system.o uart_control.o radio_protocol.o radio_control.o rf_switch.o radio_io.o radio_transport.o memory.o) build/sx126x.o
 .PHONY: uartctrl protocol-check
 build/uartctrl:
 	mkdir -p $@
@@ -109,7 +109,9 @@ uartctrl: build/uartctrl/controller.bin build/uartctrl/controller.hex
 protocol-check: uartctrl
 	python3 tools/verify_sources.py
 	CROSS_COMPILE="$(CROSS_COMPILE)" python3 tests/check_image.py build/uartctrl/controller
-	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -DUART_RADIO_PROTOCOL -Iinclude -I$(VENDOR)/sx126x_driver/src tests/test_radio_protocol.c src/radio_protocol.c src/radio_control.c src/radio_transport.c $(VENDOR)/sx126x_driver/src/sx126x.c -o build/uartctrl/test_protocol
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -DUART_RADIO_PROTOCOL -Iinclude -I$(VENDOR)/sx126x_driver/src tests/test_radio_protocol.c src/radio_protocol.c src/radio_control.c src/rf_switch.c src/radio_transport.c $(VENDOR)/sx126x_driver/src/sx126x.c -o build/uartctrl/test_protocol
 	./build/uartctrl/test_protocol
 	python3 tests/test_uart_radio.py
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude tests/test_rf_switch.c src/rf_switch.c -o build/uartctrl/test_rf_switch
+	./build/uartctrl/test_rf_switch
 -include $(CONTROL_OBJECTS:.o=.d)

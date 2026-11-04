@@ -36,6 +36,8 @@ static bool safe_command(bool read, const uint8_t *cmd, uint16_t count, uint16_t
             (cmd[0] == 0x1d && count == 4 && cmd[3] == 0 && size > 0 && size <= 4);
     }
 #ifdef UART_RADIO_PROTOCOL
+    /* XOSC is exposed only by the controlled diagnostic, never SET_MODE. */
+    if(size==0 && count==2 && cmd[0]==0x80 && cmd[1]==1) return true;
     /* Non-RF configuration only. A second band guard protects the HAL boundary.
      * PA, RX/TX/FS, image calibration, DIO2 and DIO3 remain blocked. */
     if (size == 0 && cmd[0] == 0x86 && count == 5) {

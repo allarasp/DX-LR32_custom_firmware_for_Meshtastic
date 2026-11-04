@@ -1,6 +1,6 @@
 # DX-LR32 binary radio protocol v1
 
-Implemented by the separate **uartctrl v0.3.0** image. The v0.2.1 text-diagnostic
+Implemented by the separate **uartctrl v0.3.1** image. The v0.2.1 text-diagnostic
 image remains a buildable recovery target. This protocol is experimental and
 is **not Meshtastic's client/protobuf serial protocol**. No interoperability
 with Meshtastic nodes has been demonstrated.
@@ -120,7 +120,7 @@ There is no arbitrary-SPI or debug override command.
 | Offset | Type | Meaning/current value |
 | ---: | --- | --- |
 | 1 | u8 | Schema = 1 |
-| 2 | u32 | Feature mask = `0x1F` |
+| 2 | u32 | Feature mask = `0x7F` |
 | 6 | u16 | Future maximum raw packet = 255 bytes |
 | 8 | u16 | Maximum wire payload = 272 bytes |
 | 10, 14 | u32 each | Declared module band: 433000000–532000000 Hz |
@@ -135,7 +135,8 @@ There is no arbitrary-SPI or debug override command.
 | 74 | u16 | Supported hardware-apply mask = `0x0F` |
 
 Feature bits: 0 binary diagnostics, 1 staging, 2 non-RF apply, 3 partial register
-readback, 4 requested-power staging; bits 8 RX, 9 TX, 10 TCXO control, 11 RF-switch
+readback, 4 requested-power staging, 5 bounded XOSC diagnostic, 6 read-only RF-switch
+inspection; bits 8 RX, 9 TX, 10 TCXO control, 11 RF-switch
 control are **clear**. Unlisted bits are reserved and sent as zero. Schema 1
 represents one module interval and one policy interval. Future module variants
 can report different intervals; disjoint/multiple bands require a new capability
@@ -275,3 +276,70 @@ GET_LINK_STATS provide the binary equivalent of the old text diagnostics.
 The uartctrl image emits no text banner. Do not send ASCII PING to it; build
 `radiodiag` for the preserved v0.2.1 ASCII interface. See the
 [build and physical test record](uart-protocol-results.md).
+
+
+## v0.3.1 additive diagnostics (wire version remains 1)
+
+IDs 1–17 and all existing request/response formats are unchanged. GET_VERSION
+returns firmware 0.3.1; check capability bit 5 before TEST_XOSC and bit 6 before
+GET_RF_SWITCH. SET_MODE still permits only standby RC. These commands take an
+empty request; extra bytes return LENGTH. ASCII commands are not accepted by
+the binary controller.
+
+| ID | Command | Response bytes including status |
+| ---: | --- | ---: |
+| 18 | TEST_XOSC | 18 |
+| 19 | GET_RF_SWITCH | 14 |
+| 20 | PING | 5: status followed by ASCII PONG |
+
+### TEST_XOSC response
+
+| Offset | Type | Meaning |
+| ---: | --- | --- |
+| 0 | u8 | Status |
+| 1 | u16 | Completed checks, flags below |
+| 3, 4, 5 | u8 each | Initial RC, XOSC, final RC raw status |
+| 6, 8, 10 | u16 each | Initial, XOSC, final device errors |
+| 12 | u8 | First failing phase, 0 on success |
+| 13 | u8 | First HAL error (existing link-error enumeration) |
+| 14 | u32 | Elapsed milliseconds |
+
+Flags bits 0–7 respectively: initial RC status verified; initial errors zero;
+XOSC command and BUSY wait completed; XOSC status verified; XOSC errors zero;
+RC cleanup command completed; final RC status verified; final errors zero.
+Success requires status OK and flags `0x00FF`. Raw unobserved statuses are FF;
+unread error fields are FFFF. Verify chip-mode bits 6:4 = 2 / 3 / 2; do not
+require identical command-status bits across all devices.
+
+Phases: 1 initial RC command, 2 RC status, 3 initial errors, 4 XOSC command/BUSY,
+5 XOSC status, 6 XOSC errors, 7 cleanup RC command, 8 final RC status, 9 final
+errors, 10 RF GPIO validation. The first failure is retained through cleanup.
+Every SPI/BUSY operation has the existing bounded HAL timeout. Cleanup always
+attempts RC without reset, error clearing or a second XOSC attempt. A failed
+diagnostic invalidates active configuration and increments its generation;
+a successful one preserves pending/active configuration and generation.
+An error response still contains diagnostic fields; retain them and investigate
+before retrying. This command never activates RX/TX/FS, PA, DIO2 or DIO3.
+
+### GET_RF_SWITCH response
+
+| Offset | Type | Meaning |
+| ---: | --- | --- |
+| 0 | u8 | OK if high-impedance configuration validates; otherwise READBACK |
+| 1 | u8 | State: UNDRIVEN=0, RX=1, TX=2, UNKNOWN=255 |
+| 2 | u8 | Error: OK=0, UNVERIFIED_LOAD=1, BAD_GPIO=2, BAD_STATE=3 |
+| 3 | u8 | Activation enabled: always 0 |
+| 4, 5 | u8 each | GPIOC DIRCR and OTYPER, mask 0x18 |
+| 6 | u16 | PUPDR, mask 0x03C0 |
+| 8 | u32 | AFR, mask 0x000FF000 |
+| 12, 13 | u8 each | Input and output latch levels, mask 0x18 |
+
+UNDRIVEN means direction/pull/alternate configuration validates as inputs with
+no pulls. It does not establish an RF path or safe external bias. Inspection
+never modifies GPIO registers. RX/TX states exist for future software planning
+only; this firmware cannot select them.
+
+Host commands: `python3 bin/uart_radio.py ping`, `rf_switch`, and `xosc`. The
+XOSC utility also compares configuration and RF-switch snapshots before/after
+and requires the final RC mode and zero errors. It does not retry a failure.
+See [oscillator-test.md](oscillator-test.md) for physical-test status.

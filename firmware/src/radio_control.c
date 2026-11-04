@@ -1,6 +1,7 @@
 #include <stddef.h>
 #include "radio_control.h"
 #include "radio_diag.h"
+#include "rf_switch.h"
 #include "sx126x.h"
 #include "sx126x_regs.h"
 
@@ -22,14 +23,16 @@ static void encode(uint8_t *p,const struct rc_config *c) {
     p[12]=c->sf;p[13]=c->cr;p[14]=c->ldro;p[15]=c->header;p[16]=c->crc;p[17]=c->iq;p[18]=c->payload;p[19]=(uint8_t)c->power;
 }
 static bool hal(sx126x_status_t s) {return s==SX126X_STATUS_OK;}
-static bool status(void) {
+static bool mode_status(sx126x_chip_modes_t mode,uint8_t *raw) {
+    *raw=0xff;
     sx126x_chip_status_t s;
     if(!hal(sx126x_get_status(NULL,&s))) return false;
-    raw_status=radio_link.rx[1];
-    return !(raw_status&0x81u) && s.chip_mode==SX126X_CHIP_MODE_STBY_RC &&
+    *raw=radio_link.rx[1];
+    return !(*raw&0x81u) && s.chip_mode==mode &&
         s.cmd_status!=SX126X_CMD_STATUS_CMD_TIMEOUT && s.cmd_status!=SX126X_CMD_STATUS_CMD_PROCESS_ERROR &&
         s.cmd_status!=SX126X_CMD_STATUS_CMD_EXEC_FAILURE;
 }
+static bool status(void) {return mode_status(SX126X_CHIP_MODE_STBY_RC,&raw_status);}
 static bool errors(void) {
     return hal(sx126x_get_device_errors(NULL,&device_errors)) && !(device_errors&~0x017fu);
 }
@@ -41,7 +44,9 @@ static uint8_t reset(void) {
 }
 uint8_t rc_init(void) {
     rc_pending=(struct rc_config){433875000,250000,16,0x24b4,11,5,0,0,1,0,255,10};
-    rc_active=(struct rc_config){0};rc_generation=0;radio_io_init();return reset();
+    rc_active=(struct rc_config){0};rc_generation=0;radio_io_init();
+    enum rf_switch_error pins=rf_switch_init();
+    uint8_t result=reset();return pins==RF_SWITCH_OK?result:RP_READBACK;
 }
 static uint8_t valid(const struct rc_config *c) {
     if(c->frequency<RC_MODULE_MIN || c->frequency>RC_MODULE_MAX) return RP_UNSUPPORTED;
@@ -80,18 +85,64 @@ static uint8_t apply(void) {
        ((iq>>2)&1u)!=(rc_pending.iq?0u:1u) || ((txmod>>2)&1u)!=(rc_pending.bandwidth==500000?0u:1u)) return RP_READBACK;
     rc_active=rc_pending;rc_active_valid=true;dirty=false;applied_mask=readback_mask=15;return RP_OK;
 }
+/* Capture the first failure before cleanup can overwrite the HAL error. */
+static void xosc_failure(uint8_t *out,uint8_t phase,uint8_t error) {
+    if(out[0]==RP_OK) {out[0]=error;out[12]=phase;out[13]=(uint8_t)radio_link.error;}
+}
+static uint16_t test_xosc(uint8_t *out) {
+    for(unsigned i=0;i<18;++i) out[i]=0;
+    out[3]=out[4]=out[5]=0xff;
+    rp_put16(out+6,0xffff);rp_put16(out+8,0xffff);rp_put16(out+10,0xffff);
+    uint32_t start=radio_io_millis();uint16_t flags=0;
+    struct rf_switch_report pins;
+    if(rf_switch_inspect(&pins)!=RF_SWITCH_OK) {xosc_failure(out,10,RP_READBACK);out[13]=RADIO_LINK_OK;goto cleanup;}
+    if(!hal(sx126x_set_standby(NULL,SX126X_STANDBY_CFG_RC))) {xosc_failure(out,1,RP_RADIO_ERROR);goto cleanup;}
+    if(!mode_status(SX126X_CHIP_MODE_STBY_RC,out+3)) {xosc_failure(out,2,RP_RADIO_ERROR);goto cleanup;}
+    flags|=1;
+    if(!errors()) {xosc_failure(out,3,RP_RADIO_ERROR);goto cleanup;}
+    rp_put16(out+6,device_errors);
+    if(device_errors) {xosc_failure(out,3,RP_RADIO_ERROR);goto cleanup;}
+    flags|=2;
+    if(!hal(sx126x_set_standby(NULL,SX126X_STANDBY_CFG_XOSC))) {xosc_failure(out,4,RP_RADIO_ERROR);goto cleanup;}
+    flags|=4;
+    if(!mode_status(SX126X_CHIP_MODE_STBY_XOSC,out+4)) {
+        xosc_failure(out,5,radio_link.error==RADIO_LINK_OK?RP_READBACK:RP_RADIO_ERROR);goto cleanup;
+    }
+    flags|=8;
+    if(!errors()) {xosc_failure(out,6,RP_RADIO_ERROR);goto cleanup;}
+    rp_put16(out+8,device_errors);
+    if(device_errors) {xosc_failure(out,6,RP_RADIO_ERROR);goto cleanup;}
+    flags|=16;
+cleanup:
+    /* Always bounded; no reset, retry, ClearDeviceErrors or GPIO transition. */
+    if(hal(sx126x_set_standby(NULL,SX126X_STANDBY_CFG_RC))) flags|=32;
+    else xosc_failure(out,7,RP_RADIO_ERROR);
+    if(mode_status(SX126X_CHIP_MODE_STBY_RC,out+5)) flags|=64;
+    else xosc_failure(out,8,RP_RADIO_ERROR);
+    if(errors()) {
+        rp_put16(out+10,device_errors);
+        if(!device_errors) flags|=128;
+        else xosc_failure(out,9,RP_RADIO_ERROR);
+    } else xosc_failure(out,9,RP_RADIO_ERROR);
+    raw_status=out[5];rp_put16(out+1,flags);rp_put32(out+14,radio_io_millis()-start);
+    if(out[0]!=RP_OK) {rc_active_valid=false;applied_mask=readback_mask=0;dirty=true;++rc_generation;}
+    return 18;
+}
 uint16_t rc_handle(uint8_t cmd,const uint8_t *p,uint16_t n,uint8_t *out) {
     out[0]=RP_OK;
     struct rc_config candidate=rc_pending;
     switch(cmd) {
+    case RP_PING:
+        if(n) break;
+        out[1]='P';out[2]='O';out[3]='N';out[4]='G';return 5;
     case RP_GET_VERSION:
         if(n) break;
-        out[1]=0;out[2]=3;out[3]=0;out[4]=RP_VERSION;return 5;
+        out[1]=RP_FW_MAJOR;out[2]=RP_FW_MINOR;out[3]=RP_FW_PATCH;out[4]=RP_VERSION;return 5;
     case RP_GET_CAPABILITIES:
         if(n) break;
         /* schema, features, max packet/payload, hardware band, allowed policy band,
          * hardware/policy power, duty percent, bandwidth table, SF/CR masks. */
-        out[1]=1;rp_put32(out+2,0x1fu);rp_put16(out+6,255);rp_put16(out+8,RP_MAX_PAYLOAD);
+        out[1]=1;rp_put32(out+2,0x7fu);rp_put16(out+6,255);rp_put16(out+8,RP_MAX_PAYLOAD);
         rp_put32(out+10,RC_MODULE_MIN);rp_put32(out+14,RC_MODULE_MAX);
         rp_put32(out+18,RC_POLICY_MIN);rp_put32(out+22,RC_POLICY_MAX);
         out[26]=22;out[27]=RC_POWER_MAX;out[28]=10;out[29]=10;
@@ -156,6 +207,18 @@ uint16_t rc_handle(uint8_t cmd,const uint8_t *p,uint16_t n,uint8_t *out) {
             out[0]=RP_RADIO_ERROR;return 1;
         }
         out[1]=(uint8_t)type;out[2]=sync[1];out[3]=sync[0];out[4]=iq;out[5]=txmod;return 6;
+    }
+    case RP_TEST_XOSC:
+        if(n) break;
+        return test_xosc(out);
+    case RP_GET_RF_SWITCH: {
+        if(n) break;
+        struct rf_switch_report pins;
+        out[0]=rf_switch_inspect(&pins)==RF_SWITCH_OK?RP_OK:RP_READBACK;
+        out[1]=(uint8_t)pins.state;out[2]=(uint8_t)pins.error;out[3]=0;
+        out[4]=(uint8_t)(pins.gpio.direction&RF_SWITCH_PINS);out[5]=(uint8_t)(pins.gpio.type&RF_SWITCH_PINS);
+        rp_put16(out+6,(uint16_t)(pins.gpio.pulls&RF_SWITCH_PULLS));rp_put32(out+8,pins.gpio.alternate&RF_SWITCH_AF);
+        out[12]=(uint8_t)(pins.gpio.input&RF_SWITCH_PINS);out[13]=(uint8_t)(pins.gpio.latch&RF_SWITCH_PINS);return 14;
     }
     case RP_RESET:
         if(n) break;

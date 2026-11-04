@@ -15,7 +15,7 @@ static uint16_t handle(uint8_t cmd,const uint8_t *p,uint16_t n,uint8_t *out) {
 }
 int main(void) {
     diag_uart_init();rp_init(&parser,put,handle);
-    uint8_t boot[4]={0,3,0,rc_init()};
+    uint8_t boot[4]={RP_FW_MAJOR,RP_FW_MINOR,RP_FW_PATCH,rc_init()};
     diagnostic.magic=DIAG_BOOT_MAGIC;diagnostic.stage=5;
     rp_emit(&parser,2,0x80,0,boot,sizeof(boot));
     uint32_t losses=diag_uart_loss_count();

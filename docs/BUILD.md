@@ -23,7 +23,7 @@ The ignored dependency checkouts are not submodules of this repository.
 
 | Target | Output | Status |
 | --- | --- | --- |
-| `make -C firmware uartctrl` | `firmware/build/uartctrl/controller.{elf,bin,hex,map}` | Binary UART controller v0.3.0; physical non-RF configuration/readbacks and recovery tests pass |
+| `make -C firmware uartctrl` | `firmware/build/uartctrl/controller.{elf,bin,hex,map}` | Binary UART controller v0.3.1; offline tests pass; physical deployment/XOSC pending (v0.3.0 remains installed) |
 | `make -C firmware radiodiag` | `firmware/build/radiodiag/controller.{elf,bin,hex,map}` | v0.2.1, flashed/readback verified; UART and non-RF SPI diagnostics physically pass |
 | `make -C firmware uartdiag` | `firmware/build/uartdiag/controller.{elf,bin,hex,map}` | UART diagnostic v0.1.1, physically tested at 115200 8N1 |
 | `make -C firmware all` | `firmware/build/controller.{elf,bin,hex,map}` | Experimental UART/SX1262 foundation; UART 9600 8N1, SPI mode 0 at 500 kHz; not flashed |
@@ -38,7 +38,8 @@ Observed sizes with the toolchain above:
 
 | Image | Flash | Static SRAM | Reserved stack |
 | --- | ---: | ---: | ---: |
-| Binary UART controller | 6,888 B | 988 B | 1,024 B |
+| Binary UART controller v0.3.1 | 7,664 B | 992 B | 1,024 B |
+| Preserved v0.3.0 recovery | 6,888 B | 988 B | 1,024 B |
 | Radio diagnostic | 5,100 B | 340 B | 1,024 B |
 | UART diagnostic | 1,712 B | 60 B | 1,024 B |
 | Experimental foundation | 1,596 B | 8 B | 1,024 B |
@@ -148,3 +149,26 @@ The fork has no protection-check callback: its sector labels are not a real
 read-protection measurement. It also does not establish the exact part number
 through silicon identification. Future programming requires checking the actual
 target, current protection state, driver behavior and image independently.
+
+
+## v0.3.1 validation
+
+`make -C firmware -j2 protocol-check radio-check uart-check check` passes.
+The protocol tests cover XOSC success, wrong-mode readback, device errors, BUSY
+timeout, cleanup/first-error retention, unchanged successful configuration,
+invalid GPIO, and all prior framing/CRC/configuration regressions. A separate
+RF-switch unit test validates denied activation, input configuration checks,
+and factory ordering/intermediate states without hardware access.
+
+ELF validation confirms MSP `0x20001000`, Thumb Reset_Handler `0xC1`, Flash
+within 0x00000000–0x0000FFFF and SRAM within 0x20000000–0x20000FFF. Static SRAM
+is 992 B, reserved stack 1024 B, leaving 2080 B between static data and stack.
+GCC `.su` reports show largest individual frames of 128 B in rc_handle and
+rp_feed; no recursion, VLA or heap allocation is used. A physical stack
+watermark has not been measured.
+
+GCC `-fanalyzer -c` checks of the seven changed/control source units passed;
+the host C protocol suite also passed AddressSanitizer/UndefinedBehaviorSanitizer.
+The deployed-image symbol inspection contains RF-switch inspection/init only;
+the planner and denied actuator request are discarded. Physical flashing and
+oscillator results are tracked separately in [oscillator-test.md](oscillator-test.md).

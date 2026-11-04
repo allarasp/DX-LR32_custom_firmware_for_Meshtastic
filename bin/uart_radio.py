@@ -15,7 +15,7 @@ VERSION = 1
 MAX_PAYLOAD = 272
 COMMANDS = dict(version=1, caps=2, status=3, frequency=4, lora=5, packet=6,
                 power=7, apply=8, start_rx=9, stop_rx=10, send=11, errors=12,
-                reset=13, config=14, mode=15, stats=16, readback=17)
+                reset=13, config=14, mode=15, stats=16, readback=17, xosc=18, rf_switch=19, ping=20)
 STATUS = ('OK', 'VERSION', 'FRAME', 'CRC', 'TIMEOUT', 'UNKNOWN', 'LENGTH',
           'RANGE', 'COMBINATION', 'UNSUPPORTED', 'RADIO_ERROR', 'NOT_READY',
           'READBACK', 'DISABLED', 'OVERFLOW')
@@ -51,6 +51,15 @@ def describe(command, reply):
         return dict(pending=dict(zip(keys,struct.unpack_from('<IIHHBBBBBBBb',reply,1))),
                     active_snapshot=dict(zip(keys,struct.unpack_from('<IIHHBBBBBBBb',reply,21))),
                     active_valid=bool(reply[41]), dirty=bool(reply[42]), generation=struct.unpack_from('<I',reply,47)[0])
+    if command == 18 and len(reply) == 18:
+        return dict(flags=struct.unpack_from('<H',reply,1)[0], pre_status=reply[3], xosc_status=reply[4], final_status=reply[5],
+                    pre_errors=struct.unpack_from('<H',reply,6)[0], xosc_errors=struct.unpack_from('<H',reply,8)[0],
+                    final_errors=struct.unpack_from('<H',reply,10)[0], first_failure_phase=reply[12], first_hal_error=reply[13],
+                    elapsed_ms=struct.unpack_from('<I',reply,14)[0])
+    if command == 19 and len(reply) == 14:
+        return dict(state=reply[1], last_error=reply[2], activation_enabled=bool(reply[3]), direction_mask=reply[4],
+                    open_drain_mask=reply[5], pull_bits=struct.unpack_from('<H',reply,6)[0],
+                    alternate_bits=struct.unpack_from('<I',reply,8)[0], input_mask=reply[12], latch_mask=reply[13])
     if command == 17 and len(reply) == 6:
         return dict(packet_type=reply[1], sync_word=struct.unpack_from('<H',reply,2)[0], iq_register=reply[4], tx_modulation_register=reply[5])
     return {}
@@ -185,7 +194,10 @@ def configure(link, frequency=433875000, sf=11, bandwidth=250000, cr=5, ldro=0,
 
 
 def self_test(link):
-    assert link.request(1) == bytes([0, 0, 3, 0, 1])
+    version = link.request(1)
+    assert version[:3] == bytes([0, 0, 3]) and version[-1] == 1
+    if version[3] >= 1:
+        assert link.request(20) == b'\0PONG'
     caps = link.request(2)
     assert struct.unpack_from('<IIII', caps, 10) == (433000000, 532000000, 433000000, 434000000), caps
     assert not (struct.unpack_from('<I', caps, 2)[0] & 0xf00), caps
@@ -250,7 +262,7 @@ def main():
     parser.add_argument('--iq', type=int, choices=(0,1), default=0)
     parser.add_argument('--length', type=int, default=255)
     parser.add_argument('--power', type=int, default=10)
-    parser.add_argument('command', choices=('self-test','configure','version','caps','status','config','errors','reset','stats','readback'), default='status', nargs='?')
+    parser.add_argument('command', choices=('self-test','configure','version','caps','status','config','errors','reset','stats','readback','xosc','rf_switch','ping'), default='status', nargs='?')
     args = parser.parse_args()
     ports = list(Path('/dev/serial/by-id').glob('usb-1a86_*'))
     if not args.port and len(ports) != 1:
@@ -260,13 +272,31 @@ def main():
         if args.wait_boot:
             print('UART READY; waiting for binary BOOT event', flush=True)
             boot = link.receive(0x80, 0, args.timeout, kind=2)
-            assert boot == b'\x00\x03\x00\x00', boot
+            assert boot[:2] == b'\x00\x03' and boot[3] == 0, boot
         else:
             link.write(b'\x7e')  # synchronize after an interrupted host session
         if args.command == 'self-test':
             self_test(link)
         elif args.command == 'configure':
             configure(link, **{key:getattr(args,key) for key in ('frequency','sf','bandwidth','cr','ldro','preamble','sync','header','crc','iq','length','power')})
+        elif args.command == 'xosc':
+            capabilities = link.request(2)
+            if not (struct.unpack_from('<I',capabilities,2)[0] & 0x20):
+                raise RuntimeError('firmware does not advertise XOSC diagnostic support')
+            before = link.request(14)
+            pins_before = link.request(19)
+            result = link.request(18)
+            assert len(result)==18 and struct.unpack_from('<H',result,1)[0]==255, result
+            assert result[3]>>4==2 and result[4]>>4==3 and result[5]>>4==2, result
+            assert result[6:12]==b'\0'*6, result
+            after = link.request(14)
+            assert before==after, 'successful XOSC test changed config/validity/generation'
+            pins_after = link.request(19)
+            assert pins_before[:12]==pins_after[:12] and pins_before[13:]==pins_after[13:], 'RF switch configuration/latch changed'
+            link.request(3)
+            link.log('RESULT',result='PASS: physical XOSC entry and return to RC; configuration preserved; RF outputs disabled')
+        elif args.command == 'ping':
+            assert link.request(20) == b'\0PONG'
         else:
             link.request(COMMANDS[args.command])
     finally:

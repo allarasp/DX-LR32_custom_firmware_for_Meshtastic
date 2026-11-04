@@ -53,7 +53,7 @@ class CodecTests(unittest.TestCase):
                                  input=b''.join(packets),capture_output=True,check=True)
         frames = radio.Decoder().feed(process.stdout)
         responses = {f[3]:f for f in frames if f[1]==1}
-        self.assertEqual(responses[0x7e7d][4], bytes([0,0,3,0,1]))
+        self.assertEqual(responses[0x7e7d][4], bytes([0,0,3,1,1]))
         for seq,status in [(2,9),(3,3),(4,1),(5,6),(6,13),(7,0),(8,0)]:
             self.assertEqual(responses[seq][4][0],status)
         self.assertEqual(responses[8][4][1:4], bytes([1,0xb4,0x24]))

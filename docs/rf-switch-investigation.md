@@ -1,4 +1,148 @@
-# RF-switch investigation — archived factory-code analysis, 2026-11-04
+# RF-switch investigation
+
+## v0.3.1 follow-up — 2026-11-04
+
+The following measured connections supersede the unresolved-net statements in the
+archived investigation below. The switch identity and its electrical load remain
+unresolved. No factory firmware was executed during this analysis.
+
+| Switch pin | User-measured connection |
+| --- | --- |
+| 1 | SX1262 RFO, pin 23 |
+| 2 | GND |
+| 3 | SX1262 RFI_N, pin 22 |
+| 4 | CX32 PC4, package pin 11 |
+| 5 | Antenna common path |
+| 6 | CX32 PC3, package pin 10 |
+
+The marking is approximately `S40C CFCI`; no reliable manufacturer marking match
+has established its identity. DIO2 continuity to this component is **not** known.
+An approximately 100-ohm reading between PC3/pin 6 and VDD is not proof of a
+discrete pull-up. Do not drive PC3 LOW until the load is understood.
+
+### Factory GPIO argument reconstruction
+
+The archived bytes and decoded call arguments were compared with the vendor-authored
+HAL preserved in the [pinned mirror header](https://github.com/Z1R343L-D77/CX32L003-HAL-SPL/blob/f8dabc3b529094127ab76cfd43589d8361b70cc5/CX32L003_HAL_Driver/Driver/Inc/cx32l003_hal_gpio.h)
+and [implementation](https://github.com/Z1R343L-D77/CX32L003-HAL-SPL/blob/f8dabc3b529094127ab76cfd43589d8361b70cc5/CX32L003_HAL_Driver/Driver/Src/cx32l003_hal_gpio.c).
+This is a reference HAL layout, not proof that the erased factory helper body
+was identical. GPIO_InitTypeDef has 52 bytes: Pin +0, Mode +4, Pull +8,
+OpenDrain +12, Debounce fields +16/+20/+24, SlewRate +28, DrvStrength +32,
+Exti fields +36/+40/+44, Alternate +48.
+
+At `0x39BC` the stack structure starts at SP+8; `0x39C0..0x39C4` calls the
+52-byte zero-initializer (its helper at `0x0276` is erased). The surviving
+GPIO setup establishes the following arguments:
+
+| Address | Decoded argument/effect |
+| --- | --- |
+| `0x3A38` | Store mask `0x18` at SP+8: PC3 and PC4 |
+| `0x3A3C` | Store Mode = 1 at SP+12: output |
+| `0x3A40..0x3A44` | Zero Pull and OpenDrain at SP+16 and SP+20 |
+| `0x3A48` | Load GPIOC base `0x40021800` from literal `0x3AEC` |
+| `0x3A4A` | Call GPIO initialization helper `0x0E1A` (erased) |
+| `0x3A54` | GPIO write: PC3 mask `0x08`, value 1 |
+| `0x3A5E` | GPIO write: PC4 mask `0x10`, value 0 |
+
+The surviving argument construction strongly supports **push-pull outputs, no
+internal pulls**, with initial explicit PC3 HIGH / PC4 LOW. Under this HAL
+layout, zero-initialized drive strength means HIGH, not LOW. Actual register
+writes inside the erased initialization helper cannot be inspected. The
+[CX32L003 reference material](https://www.zbitsemi.com/upload/file/20200903/20200903105452_99571.pdf)
+and local reference manual GPIO section agree that OTYPER=0 is push-pull and
+PUPDR=0 disables pulls. GPIO output configuration precedes the explicit initial
+levels; the earlier output latch is unknown, so this is not a proven glitch-free
+startup sequence.
+
+The reference HAL temporarily clears DIRCR before configuring outputs. Because
+the factory helper is erased, a matching temporary input phase cannot be proven
+for the actual factory binary. No intentional input/dead-time phase is present
+in the surviving pair-switch helpers.
+
+### Exact transition order and radio context
+
+| Helper | First operation | Second operation | Final PC3/PC4 | Intermediate state from opposite mode |
+| --- | --- | --- | --- | --- |
+| `0x3B18` | PC3 HIGH | PC4 LOW | 1/0, receive/non-TX | 1/1 |
+| `0x3BA0` | PC3 LOW | PC4 HIGH | 0/1, TX | 0/0 |
+
+No explicit delay or GPIO input reconfiguration appears between those writes.
+The intermediate states are observations, **not validated safe states**. The
+GPIO-write helper at `0x10B4` is erased; the reference HAL uses ODSET/ODCLR.
+
+The send path `0x5750` calls the TX helper at `0x5796`. Its interface-table call
+through entry `0x7844` (Thumb pointer `0x5D45`) reaches `0x5D44`, then `0x6E58`
+and `0x6ECC`, constructing SetTx `0x83` (literal `0x6EFC`). A receive path calls
+`0x3B18` at `0x4E92`, then uses table entry `0x7878` (pointer `0x5CFD`) at
+`0x4EAC..0x4EB0`, reaching `0x5CFC`, `0x6CF0`, and SetRx construction at
+`0x6DB4` (opcode `0x82`, literal `0x6DE4`). Other receive/non-TX helper references
+include `0x4ACE`, `0x4F3E`, `0x511E`, `0x538E`, `0x594A`, and `0x7204`.
+
+The initialization at `0x5AB4` executes, in order: wake, reset, retention setup,
+`96 01` (DCDC regulator), **`9D 01`**, `80 00` (standby RC), **`80 01` (standby
+XOSC)**, writes `05 05` at registers `0x0911/0x0912`, `93 30` (XOSC fallback),
+then a read/modify/write OR `0x1E` at `0x08D8`. Relevant call sites are
+`0x5AD2`, `0x5ADA`, `0x5AE2`, `0x5AEA`, `0x5AF4`, `0x5AFC`, `0x5B02`.
+A separate helper at `0x602A` later writes `12 12` to `0x0911/0x0912` near
+`0x6050`; `05 05` is not a universal factory trim setting. These values are
+historical observations, not copied into the new diagnostic.
+
+Thus factory DIO2 enable coexists with MCU-controlled PC3/PC4 switching; it
+does not prove a shared physical net. No separate external PA/LNA enable pin
+was established. The `0x95` constructor at `0x6C0C` (literal `0x6C40`) configures
+the SX1262 internal PA and is not evidence of an external GPIO enable. Other
+fan-out of PC3/PC4 remains possible. The bounded negative finding for `0x97`
+below is unchanged; erased paths preclude an absolute claim.
+
+### Electrical interpretation and remaining measurements
+
+The [pSemi PE4259 datasheet](https://psemi.com/pdf/datasheets/pe4259ds.pdf),
+DOC-03694-5.01, has matching RF/control pin functions. Pin 6 is VDD in
+single-control operation, or the complementary control in dual-control
+operation. With pin 6 held at supply, pin 4 selects RF1 HIGH / RF2 LOW;
+complementary control selects RF1 with pin 6 LOW / pin 4 HIGH, and RF2 with
+pin 6 HIGH / pin 4 LOW. This agrees with the factory logic **if** the actual
+part supports that mode. It does not identify the marked component.
+
+For the PE4259, recommended supply is 1.8–3.3 V; logic thresholds are
+0.7 x VDD HIGH and 0.3 x VDD LOW. Absolute supply is -0.3–4 V and input
+limits -0.3 to VDD+0.3 V. Supply current at 3 V is typically 9 microamps,
+maximum 20 microamps. These limits apply to the documented part, not an
+unidentified alternative. Complementary-mode supply behavior must be
+interpreted using the manufacturer circuit, not by treating instantaneous
+pin 6 LOW as an ordinary zero-volt supply.
+
+[pSemi AN37](https://psemi.com/pdf/app_notes/an37.pdf), DOC-57537-1.01, explains
+charge-pump supply switching and control-current transients. Its bias-resistor
+example is not a recommended modification for this unknown board. If the
+100-ohm reading were a linear connection to a stiff 3.3 V rail, a LOW output
+could sink about 33 mA. That is only a conditional calculation; a semiconductor
+or parallel path can produce a misleading resistance reading. Factory
+push-pull intent does not validate this load.
+
+Still needed before activation: establish the exact component, inspect/trace
+the pin-6-to-VDD path with all power removed, compare resistance in both probe
+polarities and diode mode, determine whether a discrete resistor actually
+exists, and establish control voltage/current limits and any other connected
+loads. Powered high-impedance voltage observations can help after confirming
+a safe measurement setup. DIO2 continuity remains a separate question.
+
+### v0.3.1 software preparation
+
+`rf_switch.c` defines UNDRIVEN/RX/TX/UNKNOWN and validates GPIO direction, pulls
+and alternate functions without modifying them. Every RX/TX request is denied
+with UNVERIFIED_LOAD; there is no override or actuator backend. A pure host-tested
+factory-plan function records the two-write ordering and intermediate states
+for future review. Link garbage collection removes both that planner and the
+denied-request routine from the physical image. The binary GET_RF_SWITCH
+command reports masked input/configuration/latch registers, never writes them.
+Incorrect configuration is reported, not repaired by driving a pin.
+
+## Archived offline investigation — 2026-11-04
+
+The remainder records the earlier read-only analysis and its then-current
+uncertainties. Its statements about no serial/SWD use apply to that earlier
+investigation only; the v0.3.1 stage attempted connection preflight separately.
 
 ## Findings and limits
 
