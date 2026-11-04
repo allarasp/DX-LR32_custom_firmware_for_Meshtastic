@@ -28,6 +28,7 @@ sx126x_hal_status_t sx126x_hal_write(const void *c,const uint8_t *b,uint16_t n,c
  (void)c;(void)n;(void)p;(void)size;if(fault)return SX126X_HAL_STATUS_ERROR;
  switch(b[0]) {
  case 0x80:chip=2;break;
+ case 0x98:assert(b[1]==(rc_active.frequency>=863000000?0xd7:0x6b));assert(b[2]==(rc_active.frequency>=863000000?0xdb:0x6f));break;
  case 0x82:chip=5;break;
  case 0x83:chip=6;++starts;assert(pad==2);break;
  case 0x02:irq=0;break;
@@ -89,7 +90,7 @@ int main(void) {
  setup();pad_fault=true;assert(command(RP_STOP_RX,0,0)==RP_RADIO_ERROR&&!rc_active_valid);
  assert(command(RP_START_RX,zero,4)==RP_NOT_READY);
  setup();assert(command(RP_START_RX,zero,4)==RP_OK);live_link_fault();assert(chip==2&&pad==0&&!rc_active_valid);
- assert(live_handle(RP_GET_VERSION,0,0,out,0)==5&&out[2]==5&&out[3]==1);
+ assert(live_handle(RP_GET_VERSION,0,0,out,0)==5&&out[2]==6&&out[3]==0);
  setup();assert(command(21,arm,4)==RP_OK);assert(command(RP_START_RX,zero,4)==RP_OK);irq=4;assert(command(RP_SEND,packet,32)==RP_NOT_READY&&!starts);
  setup();fault=true;assert(command(RP_START_RX,zero,4)==RP_RADIO_ERROR&&pad==0&&resets);
  setup();rc_active_valid=false;assert(command(RP_START_RX,zero,4)==RP_NOT_READY);
@@ -98,5 +99,11 @@ int main(void) {
   assert(command(RP_SEND,packet,32)==RP_OK&&starts==1&&(int8_t)transmitted_power==power);
  }
  setup();rc_active.power=23;assert(command(RP_ARM_TX,arm,4)==RP_OK);assert(command(RP_SEND,packet,32)==RP_RANGE&&!starts);
+ setup();assert(live_handle(RP_GET_FREQUENCY_RANGES,0,0,out,0)==19&&out[1]==1&&out[2]==2&&rp_u32(out+11)==863000000&&rp_u32(out+15)==870000000);
+ assert(command(RP_START_RX,zero,4)==RP_OK);assert(command(RP_STOP_RX,0,0)==RP_OK);
+ rc_active.frequency=868000000;assert(command(RP_START_RX,zero,4)==RP_OK);assert(command(RP_STOP_RX,0,0)==RP_OK);
+ assert(command(RP_ARM_TX,arm,4)==RP_OK);assert(command(RP_SEND,packet,32)==RP_OK&&starts==1);
+ setup();rc_active.frequency=868000000;assert(command(RP_START_RX,zero,4)==RP_OK);assert(command(RP_STOP_RX,0,0)==RP_OK);
+ rc_active.frequency=433875000;assert(command(RP_START_RX,zero,4)==RP_OK);
  puts("Live radio host tests passed: RX metadata/255 bytes, CRC discard, single-arm TX, duty, IRQ busy, watchdog, cleanup and recovery");
 }

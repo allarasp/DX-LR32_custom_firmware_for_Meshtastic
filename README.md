@@ -1,24 +1,23 @@
 # DX-LR32 UART radio firmware
 
-Experimental firmware for using the **DX-LR32-A (433 MHz)** LoRa module as an external **UART-connected SX1262 radio controller**.
+Firmware under development for using the **DX-LR32-A (433 MHz)** LoRa module as an external **UART-connected SX1262 radio controller**.
 
 The CX32 firmware is a raw LoRa radio controller usable by other UART host applications, with Meshtastic as the first integration. It does not parse Meshtastic packets or manage encryption.
 
 The goal of the Meshtastic integration is to build a standalone Meshtastic messaging device with an **ESP32-2432S028 CYD touchscreen**, without requiring a phone or Bluetooth. The ESP32 would run the Meshtastic network stack and user interface; the DX-LR32's existing **CX32L003F8** microcontroller would control its SX1262 over SPI.
 
-> **Experimental — a two-way public-channel text exchange with a phone-connected 433 MHz LilyGO TTGO is verified.** The WSL bridge and meshctrl v0.4.0 exchanged real EU_433 LongFast messages. This establishes the tested text/profile path, not complete Meshtastic routing or feature compatibility. The CYD radio adapter still needs a wired test. See [peer-test evidence](docs/meshtastic-peer-test.md).
+> **Development status — a two-way public-channel text exchange with a phone-connected 433 MHz LilyGO TTGO is verified.** The WSL bridge and meshctrl v0.4.0 exchanged real EU_433 LongFast messages. This establishes the tested text/profile path, not complete Meshtastic routing or feature compatibility. The CYD radio adapter still needs a wired test. See [peer-test evidence](docs/meshtastic-peer-test.md).
 
-**Current firmware: v0.5.1**, programmed and fully readback-verified. TX now
-uses the UART-selected LoRa modem/packet settings and power (-9..+22 dBm
-commanded; regulatory power policy belongs to the host), within the existing EU_433 frequency policy. Recovery, duplicate-TX
-protection, packet/error counters and asynchronous UART output are implemented.
-A new public-channel exchange received `Alr1 v050 ready`, delivered our reply to
-the phone, and received `V050 ok`. There was one transmission, at -9 dBm commanded.
-Size: **12,704 B Flash, 2,392 B static RAM + 1 KB stack**. See
-[v0.5.1 power-range update](docs/v0.5.1-results.md),
-[v0.5.0 test evidence and build commands](docs/v0.5.0-results.md) and
-[general-purpose UART contract](docs/UART_LIVE.md). This is still experimental,
-not a fully qualified universal modem or a complete Meshtastic router.
+**Current firmware: v0.6.0**, programmed and readback-verified. The same UART
+frequency command selects **433–434 MHz or 863–870 MHz** directly, without a
+separate mode/enable flag. TX uses UART-selected modem/packet settings and power
+(-9..+22 dBm commanded); regional policy belongs to the host. Recovery,
+duplicate-TX protection, packet/error counters and asynchronous UART output are
+retained. Size: **12,920 B Flash, 2,392 B static RAM + 1 KB stack**. See
+[v0.6.0 dual-band results and usage](docs/v0.6.0-results.md) and the
+[UART contract](docs/UART_LIVE.md). Earlier v0.5.x peer exchanges passed; those
+results do not establish measured 868 MHz RF performance or complete Meshtastic
+router compatibility.
 
 **The preserved v0.3.1 recovery image was programmed, readback-verified and physically tested.** Its bounded
 crystal diagnostic reported standby RC → XOSC → RC (`0x22 → 0x32 → 0x22`),

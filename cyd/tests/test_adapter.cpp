@@ -15,7 +15,7 @@ static std::vector<uint8_t> take() {
  uint16_t c=0xffff;for(unsigned i=0;i<b.size()-2;++i)c=crc(c,b[i]);assert(b[b.size()-2]==uint8_t(c)&&b.back()==uint8_t(c>>8));out.clear();return b;
 }
 static uint16_t seq(const std::vector<uint8_t>& b) {return b[3]|uint16_t(b[4])<<8;}
-static void handshake(Harness &h,uint8_t minor=5) {
+static void handshake(Harness &h,uint8_t minor=6) {
  h.runOnce();
  for(unsigned i=0;i<9;++i) {
   auto b=take();assert(!b.empty());const uint8_t expected[]={1,2,10,4,5,6,7,8,9};assert(b[2]==expected[i]);

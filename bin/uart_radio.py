@@ -15,7 +15,7 @@ VERSION = 1
 MAX_PAYLOAD = 272
 COMMANDS = dict(version=1, caps=2, status=3, frequency=4, lora=5, packet=6,
                 power=7, apply=8, start_rx=9, stop_rx=10, send=11, errors=12,
-                reset=13, config=14, mode=15, stats=16, readback=17, xosc=18, rf_switch=19, ping=20, arm_tx=21, radio_stats=22, transport_stats=23)
+                reset=13, config=14, mode=15, stats=16, readback=17, xosc=18, rf_switch=19, ping=20, arm_tx=21, radio_stats=22, transport_stats=23, bands=24)
 STATUS = ('OK', 'VERSION', 'FRAME', 'CRC', 'TIMEOUT', 'UNKNOWN', 'LENGTH',
           'RANGE', 'COMBINATION', 'UNSUPPORTED', 'RADIO_ERROR', 'NOT_READY',
           'READBACK', 'DISABLED', 'OVERFLOW', 'DUPLICATE')
@@ -60,6 +60,8 @@ def describe(command, reply):
         return dict(state=reply[1], last_error=reply[2], activation_enabled=bool(reply[3]), direction_mask=reply[4],
                     open_drain_mask=reply[5], pull_bits=struct.unpack_from('<H',reply,6)[0],
                     alternate_bits=struct.unpack_from('<I',reply,8)[0], input_mask=reply[12], latch_mask=reply[13])
+    if command == 24 and len(reply)>=3 and len(reply)==3+8*reply[2]:
+        return dict(schema=reply[1],ranges_hz=[list(struct.unpack_from('<II',reply,3+8*i)) for i in range(reply[2])])
     if command == 23 and len(reply) == 11:
         return dict(dropped_output_frames=struct.unpack_from('<I',reply,1)[0],tx_stalls=struct.unpack_from('<I',reply,5)[0],tx_queue_free=struct.unpack_from('<H',reply,9)[0])
     if command == 22 and len(reply) == 37:
@@ -267,7 +269,7 @@ def main():
     parser.add_argument('--iq', type=int, choices=(0,1), default=0)
     parser.add_argument('--length', type=int, default=255)
     parser.add_argument('--power', type=int, default=-9)
-    parser.add_argument('command', choices=('self-test','configure','version','caps','status','config','errors','reset','stats','readback','xosc','rf_switch','ping','radio_stats','transport_stats'), default='status', nargs='?')
+    parser.add_argument('command', choices=('self-test','configure','version','caps','status','config','errors','reset','stats','readback','xosc','rf_switch','ping','radio_stats','transport_stats','bands'), default='status', nargs='?')
     args = parser.parse_args()
     ports = list(Path('/dev/serial/by-id').glob('usb-1a86_*'))
     if not args.port and len(ports) != 1:

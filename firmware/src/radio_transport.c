@@ -34,7 +34,7 @@ static bool safe_command(bool read, const uint8_t *cmd, uint16_t count, uint16_t
     if(read && cmd[0]==0x1d&&count==4&&cmd[1]==8&&cmd[2]==0xd8&&size==1)return true;
     if(!read) {
       if(size==0 && ((cmd[0]==0x82&&count==4) || (cmd[0]==0x83&&count==4) ||
-        (cmd[0]==0x98&&count==3&&cmd[1]==0x6b&&cmd[2]==0x6f) ||
+        (cmd[0]==0x98&&count==3&&((cmd[1]==0x6b&&cmd[2]==0x6f)||(cmd[1]==0xd7&&cmd[2]==0xdb))) ||
         (cmd[0]==0x93&&count==2&&cmd[1]==0x20) || (cmd[0]==0x8f&&count==3) ||
         (cmd[0]==0x08&&count==9) || (cmd[0]==0x02&&count==3) ||
         (cmd[0]==0x95&&count==5&&cmd[1]==4&&cmd[2]==7&&cmd[3]==0&&cmd[4]==1) ||
@@ -58,7 +58,12 @@ static bool safe_command(bool read, const uint8_t *cmd, uint16_t count, uint16_t
     if (size == 0 && cmd[0] == 0x86 && count == 5) {
         uint32_t word = (uint32_t)cmd[1]<<24 | (uint32_t)cmd[2]<<16 |
                         (uint32_t)cmd[3]<<8 | cmd[4];
-        return word >= 454033408u && word <= 455081984u; /* 433..434 MHz, 32 MHz reference */
+        if(word >= 454033408u && word <= 455081984u)return true; /* 433..434 MHz */
+#ifdef UART_RADIO_LIVE
+        return word >= 904921088u && word <= 912261120u; /* 863..870 MHz */
+#else
+        return false;
+#endif
     }
     if (size == 0 && cmd[0] == 0x8b && count == 5)
         return cmd[1]>=5 && cmd[1]<=12 && (cmd[2]<=6 || cmd[2]==8 || cmd[2]==9 || cmd[2]==10) &&

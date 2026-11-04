@@ -24,10 +24,20 @@ int main(void) {
     uint8_t pa[]={0x95,4,7,0,1};
     assert(sx126x_hal_write(0,pa,sizeof(pa),0,0)==SX126X_HAL_STATUS_OK);
     pa[1]=5;assert(sx126x_hal_write(0,pa,sizeof(pa),0,0)==SX126X_HAL_STATUS_ERROR);
-    uint8_t dio2[]={0x9d,1},dio3[]={0x97,0,0,0,1},freq[]={0x86,0x36,0x40,0,0};
+    uint8_t dio2[]={0x9d,1},dio3[]={0x97,0,0,0,1},freq[]={0x86,0x39,0x30,0,0};
     assert(sx126x_hal_write(0,dio2,sizeof(dio2),0,0)==SX126X_HAL_STATUS_ERROR);
     assert(sx126x_hal_write(0,dio3,sizeof(dio3),0,0)==SX126X_HAL_STATUS_ERROR);
     assert(sx126x_hal_write(0,freq,sizeof(freq),0,0)==SX126X_HAL_STATUS_ERROR);
+    uint8_t cal433[]={0x98,0x6b,0x6f},cal868[]={0x98,0xd7,0xdb};
+    assert(sx126x_hal_write(0,cal433,3,0,0)==SX126X_HAL_STATUS_OK);
+    assert(sx126x_hal_write(0,cal868,3,0,0)==SX126X_HAL_STATUS_OK);
+    cal868[2]=0xdc;assert(sx126x_hal_write(0,cal868,3,0,0)==SX126X_HAL_STATUS_ERROR);
+    const uint32_t frequencies[]={433000000,434000000,863000000,868000000,870000000};
+    for(unsigned i=0;i<sizeof(frequencies)/sizeof(frequencies[0]);++i) {
+        uint32_t word=(uint32_t)(((uint64_t)frequencies[i]<<25)/32000000);
+        uint8_t f[]={0x86,word>>24,word>>16,word>>8,word};
+        assert(sx126x_hal_write(0,f,sizeof(f),0,0)==SX126X_HAL_STATUS_OK);
+    }
     struct rp_parser parser;rp_init(&parser,put,0);parser.can_emit=allowed;
     uint8_t payload[272];for(unsigned i=0;i<sizeof(payload);++i)payload[i]=0x7e;
     assert(!rp_emit(&parser,2,0x81,1,payload,sizeof(payload))&&!written&&parser.tx_drops==1);

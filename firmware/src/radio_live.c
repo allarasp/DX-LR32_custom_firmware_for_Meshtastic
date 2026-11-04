@@ -27,8 +27,12 @@ static bool stop(void) {
 static void error(uint8_t origin) {uint8_t p[2]={origin,RP_RADIO_ERROR};emit(0x83,origin==RP_SEND?tx_seq:0,p,2);}
 void live_link_fault(void) {armed=false;rx_again=false;if(mode==4)++stats[6];(void)stop();rc_invalidate();}
 static bool prepare(void) {
- return rc_active_valid && ok(sx126x_set_standby(0,SX126X_STANDBY_CFG_RC)) &&
- ok(sx126x_cal_img(0,0x6b,0x6f)) && ok(sx126x_set_rx_tx_fallback_mode(0,SX126X_FALLBACK_STDBY_RC)) &&
+ uint32_t lower,upper;
+ if(!rc_active_valid || rc_frequency_bounds(rc_active.frequency,&lower,&upper)!=RP_OK)return false;
+ uint8_t cal_low=lower==RC_BAND868_MIN?0xd7:0x6b;
+ uint8_t cal_high=lower==RC_BAND868_MIN?0xdb:0x6f;
+ return ok(sx126x_set_standby(0,SX126X_STANDBY_CFG_RC)) &&
+ ok(sx126x_cal_img(0,cal_low,cal_high)) && ok(sx126x_set_rx_tx_fallback_mode(0,SX126X_FALLBACK_STDBY_RC)) &&
  ok(sx126x_set_buffer_base_address(0,0,0)) && ok(sx126x_set_dio_irq_params(0,0x03ff,0x0203,0,0)) && clear_irq();
 }
 static bool receive(void) {
@@ -88,6 +92,12 @@ void live_poll(void) {
 uint16_t live_handle(uint8_t cmd,const uint8_t *p,uint16_t n,uint8_t *out,uint16_t seq) {
  out[0]=RP_OK;
  if(cmd==RP_GET_VERSION) {if(n)goto length;out[1]=RP_FW_MAJOR;out[2]=RP_FW_MINOR;out[3]=RP_FW_PATCH;out[4]=RP_VERSION;return 5;}
+ if(cmd==RP_GET_FREQUENCY_RANGES) {
+  if(n)goto length;
+  out[1]=1;out[2]=2;
+  rp_put32(out+3,RC_POLICY_MIN);rp_put32(out+7,RC_POLICY_MAX);
+  rp_put32(out+11,RC_BAND868_MIN);rp_put32(out+15,RC_BAND868_MAX);return 19;
+ }
  if(cmd==RP_GET_RADIO_STATS) {
   if(n)goto length;
   for(unsigned i=0;i<9;++i)rp_put32(out+1+4*i,stats[i]);

@@ -55,12 +55,13 @@ uint8_t rc_init(void) {
     uint8_t result=reset();return pins==RF_SWITCH_OK?result:RP_READBACK;
 }
 static uint8_t valid(const struct rc_config *c) {
-    if(c->frequency<RC_MODULE_MIN || c->frequency>RC_MODULE_MAX) return RP_UNSUPPORTED;
-    if(c->frequency<RC_POLICY_MIN || c->frequency>RC_POLICY_MAX) return RP_RANGE;
+    uint32_t lower,upper;
+    uint8_t band=rc_frequency_bounds(c->frequency,&lower,&upper);
+    if(band!=RP_OK)return band;
     if(rc_bandwidth_code(c->bandwidth)<0 || c->sf<5 || c->sf>12 || c->cr<5 || c->cr>8 || c->ldro>1 ||
        c->header>1 || c->crc>1 || c->iq>1 || c->payload==0 || c->preamble<8 ||
        c->power < -9 || c->power>RC_POWER_MAX) return RP_RANGE;
-    if(c->frequency-RC_POLICY_MIN<c->bandwidth/2 || RC_POLICY_MAX-c->frequency<c->bandwidth/2 ||
+    if(c->frequency-lower<c->bandwidth/2 || upper-c->frequency<c->bandwidth/2 ||
        (c->sf<=6 && c->preamble<12) || (c->ldro && c->sf<7) ||
        (!c->ldro && ((uint64_t)1u<<c->sf)*1000u>=16u*(uint64_t)c->bandwidth)) return RP_COMBINATION;
     return RP_OK;
@@ -165,12 +166,14 @@ uint16_t rc_handle(uint8_t cmd,const uint8_t *p,uint16_t n,uint8_t *out) {
         if(n) break;
         encode(out+1,&rc_pending);encode(out+21,&rc_active);out[41]=rc_active_valid;out[42]=dirty;
         rp_put16(out+43,applied_mask);rp_put16(out+45,readback_mask);rp_put32(out+47,rc_generation);return 51;
-    case RP_SET_FREQUENCY:
+    case RP_SET_FREQUENCY: {
         if(n!=4) break;
         candidate.frequency=rp_u32(p);
-        if(candidate.frequency<RC_MODULE_MIN || candidate.frequency>RC_MODULE_MAX) {out[0]=RP_UNSUPPORTED;return 1;}
-        if(candidate.frequency<RC_POLICY_MIN || candidate.frequency>RC_POLICY_MAX) {out[0]=RP_RANGE;return 1;}
+        uint32_t lower,upper;
+        out[0]=rc_frequency_bounds(candidate.frequency,&lower,&upper);
+        if(out[0]!=RP_OK)return 1;
         goto stage;
+    }
     case RP_SET_LORA:
         if(n!=7) break;
         candidate.sf=p[0];candidate.bandwidth=rp_u32(p+1);candidate.cr=p[5];candidate.ldro=p[6];

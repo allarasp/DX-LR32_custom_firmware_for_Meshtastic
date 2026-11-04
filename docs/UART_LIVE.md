@@ -1,13 +1,13 @@
-# Live raw-LoRa UART controller v0.5.1
+# Live raw-LoRa UART controller v0.6.0
 
 The `meshctrl` build name is retained for compatibility, but the CX32 handles
 raw LoRa packets and has no Meshtastic packet/encryption dependency. Existing
 protocol-v1 frame encoding, command IDs and payload layouts remain unchanged.
 Legacy `uartctrl` is still a separate non-RF v0.3.1 recovery target.
 
-BOOT and GET_VERSION identify 0.5.1. Capabilities mask is 0x7BFF: existing
+BOOT and GET_VERSION identify 0.6.0. Capabilities mask is 0xFBFF: existing
 0–9/11 features, bit 12 configurable TX, bit 13 radio/transport statistics,
-bit 14 queued UART output. Bit 10 (TCXO) remains clear.
+bit 14 queued UART output, bit 15 multiple frequency ranges (command 24). Bit 10 (TCXO) remains clear.
 
 ## Configuration and transmission
 
@@ -25,9 +25,15 @@ policy. Capabilities offsets 26 and 27 both report 22: silicon maximum and
 controller ceiling respectively. Offset 27 retains its historical wire position
 and legacy name but is not an EU power limit in this live image. The default
 requested power and test bridge remain -9 dBm. No value outside the hardware
-command range is accepted. Frequency stays within 433–434 MHz,
-including the configured bandwidth edges; the 433–532 MHz module declaration
-is not permission to operate throughout that range. 868 MHz stays rejected.
+command range is accepted. SET_FREQUENCY accepts 433–434 MHz or 863–870 MHz directly,
+including the configured bandwidth edges. The same integer-Hz command selects
+either band: no separate mode switch, enable flag or recompilation. The radio
+uses image calibration 6B/6F or D7/DB according to the applied frequency.
+Capabilities' original module-band fields retain the 433–532 MHz manufacturer
+declaration and primary-window fields retain 433–434 MHz for old clients. New
+hosts use GET_FREQUENCY_RANGES to discover all controller tuning windows. The
+ranges describe accepted settings, not measured RF performance.
+
 
 Implicit-header TX requires packet length equal to configured payload length.
 Explicit-header TX accepts 1..255 bytes. Airtime is calculated with the actual
@@ -74,6 +80,9 @@ New commands, empty request payloads:
   TX attempts, TX completions, TX errors, cleanup failures, duplicate-sequence
   requests. Counters wrap and reset on MCU reboot. Extracted packets can still
   be dropped at UART output; consult transport statistics too.
+- GET_FREQUENCY_RANGES (24), 19-byte reply: status:u8, schema:u8=1, count:u8=2,
+  followed by (minimum_hz:u32, maximum_hz:u32) for each range: 433000000–434000000
+  and 863000000–870000000. No separate band selector is required.
 - GET_TRANSPORT_STATS (23), 11-byte reply: status:u8, dropped_output_frames:u32,
   tx_stalls:u32, tx_queue_free:u16. Drop counts cover responses and events.
 
@@ -108,3 +117,6 @@ Existing v0.4.0 physical results remain historical evidence in
 [peer-test results](meshtastic-peer-test.md). Current release verification is
 recorded in [v0.5.0 results](v0.5.0-results.md); the power-range follow-up is
 [v0.5.1](v0.5.1-results.md).
+
+Current dual-band configuration and physical RX checks are recorded in
+[v0.6.0 results](v0.6.0-results.md).

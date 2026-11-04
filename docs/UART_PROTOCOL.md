@@ -366,3 +366,16 @@ byte layouts and protocol version 1 are unchanged. Frequency remains dynamically
 configurable in integer Hz within the existing 433–434 MHz controller policy.
 The DX-LR32-A hardware declaration remains 433–532 MHz; an antenna change does
 not establish 868 MHz RF-front-end capability. See [power update](v0.5.1-results.md).
+
+### v0.6.0 direct 433/868 MHz selection
+
+SET_FREQUENCY (4) takes the same u32 Hz payload for either 433–434 MHz or
+863–870 MHz. There is no band-enable command or separate mode. APPLY validates
+bandwidth edges in the selected window; RX/TX preparation chooses image
+calibration 6B/6F or D7/DB automatically. GET_FREQUENCY_RANGES (24) returns status,
+schema 1, count 2, then two u32-minimum/u32-maximum records (19 bytes total).
+Capabilities bit 15 advertises it; mask is 0xFBFF. The old 76-byte capabilities
+layout and existing command formats remain unchanged; protocol version stays 1.
+Original module/primary-band capability fields retain their old meanings; use
+command 24 for the complete list of accepted settings. See
+[dual-band contract](UART_LIVE.md) and [v0.6.0 results](v0.6.0-results.md).

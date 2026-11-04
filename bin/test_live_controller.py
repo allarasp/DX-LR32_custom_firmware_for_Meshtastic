@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Physical v0.5.x UART regression; configures and briefly receives, never transmits."""
+"""Physical live-controller UART regression; configures and briefly receives, never transmits."""
 import argparse
 from pathlib import Path
 import struct
@@ -14,12 +14,13 @@ def main():
     if not a.port and len(ports)!=1:ap.error('specify --port; exactly one CH340 is required')
     link=Link(a.port or str(ports[0]),a.log)
     try:
-        link.write(b'\x7e');version=link.request(1);assert version[:3]==b'\0\0\5' and version[4]==1
-        maximum=22 if version[3]>=1 else 10
+        link.write(b'\x7e');version=link.request(1);assert version[:2]==b'\0\0' and version[2] in (5,6) and version[4]==1
+        dual_band=version[2]>=6
+        maximum=22 if dual_band or version[3]>=1 else 10
         assert link.request(20)==b'\0PONG'
-        caps=link.request(2);assert struct.unpack_from('<I',caps,2)[0]==0x7bff
+        caps=link.request(2);assert struct.unpack_from('<I',caps,2)[0]==(0xfbff if dual_band else 0x7bff)
         link.request(10)
-        link.request(4,struct.pack('<I',868000000),expected=9)
+        if not dual_band:link.request(4,struct.pack('<I',868000000),expected=9)
         assert caps[26]==22 and caps[27]==maximum
         link.request(7,struct.pack('<b',maximum+1),expected=7)
         # Max-power configuration only: this utility never sends/arms TX.
@@ -33,6 +34,18 @@ def main():
             rb=link.request(17);assert struct.unpack_from('<H',rb,2)[0]==sync
             assert ((rb[4]>>2)&1)==(0 if iq else 1)
             cfg=link.request(14);assert struct.unpack_from('<b',cfg,40)[0]==power and cfg[41]==1
+        if dual_band:
+            bands=link.request(24)
+            assert bands==bytes([0,1,2])+struct.pack('<4I',433000000,434000000,863000000,870000000)
+            # Both bands use the ordinary frequency command. Brief RX exercises
+            # band-specific image calibration without arming or transmitting.
+            for hz in (868000000,433875000):
+                configure(link,frequency=hz,power=-9)
+                link.request(9,struct.pack('<I',100))
+                state=link.request(3)
+                assert state[1]==3 and state[2]>>4==5 and state[3:5]==b'\0\0'
+                assert link.receive(0x84,0,timeout=3,kind=2)==bytes([4])
+                assert link.request(3)[1]==0
         # Deliberately corrupt CRC, then recover on a valid frame.
         link.seq+=1;link.write(encode(20,link.seq,bad_crc=True))
         assert link.receive(20,link.seq)[0]==3

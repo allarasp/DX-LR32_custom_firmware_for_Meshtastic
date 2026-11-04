@@ -3,9 +3,23 @@
 #include "radio_protocol.h"
 #define RC_MODULE_MIN 433000000u
 #define RC_MODULE_MAX 532000000u
-/* Matches inspected Meshtastic EU_433 region; no slot calculation here. */
+/* Primary tuning window; no Meshtastic slot calculation here. */
 #define RC_POLICY_MIN 433000000u
 #define RC_POLICY_MAX 434000000u
+#define RC_BAND868_MIN 863000000u
+#define RC_BAND868_MAX 870000000u
+/* A single SET_FREQUENCY selects the band. No separate mode/enable command. */
+static inline uint8_t rc_frequency_bounds(uint32_t hz,uint32_t *lower,uint32_t *upper) {
+    if(hz>=RC_POLICY_MIN && hz<=RC_POLICY_MAX) {
+        *lower=RC_POLICY_MIN;*upper=RC_POLICY_MAX;return RP_OK;
+    }
+#ifdef UART_RADIO_LIVE
+    if(hz>=RC_BAND868_MIN && hz<=RC_BAND868_MAX) {
+        *lower=RC_BAND868_MIN;*upper=RC_BAND868_MAX;return RP_OK;
+    }
+#endif
+    return hz<RC_MODULE_MIN || hz>RC_MODULE_MAX?RP_UNSUPPORTED:RP_RANGE;
+}
 #ifdef UART_RADIO_LIVE
 /* SX1262 command range; regional policy belongs to the host. */
 #define RC_POWER_MAX 22

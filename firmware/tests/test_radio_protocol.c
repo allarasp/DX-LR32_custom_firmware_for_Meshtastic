@@ -106,7 +106,12 @@ int main(int argc,char **argv) {
     assert(command(RP_APPLY,NULL,0)==RP_OK && rc_active_valid && pll_word==sx126x_convert_freq_in_hz_to_pll_step(433875000));
     assert(registers[0x740]==0x24 && registers[0x741]==0xb4 && packet_type==1);
     unsigned before=transfers;
-    frequency(868000000,RP_UNSUPPORTED);frequency(432999999,RP_UNSUPPORTED);frequency(532000001,RP_UNSUPPORTED);
+    #ifdef UART_RADIO_LIVE
+    frequency(868000000,RP_OK);
+#else
+    frequency(868000000,RP_UNSUPPORTED);
+#endif
+    frequency(432999999,RP_UNSUPPORTED);frequency(532000001,RP_UNSUPPORTED);
     frequency(500000000,RP_RANGE);lora(4,250000,5,0,RP_RANGE);lora(7,99999,5,0,RP_RANGE);lora(7,250000,9,0,RP_RANGE);
     for(int value=-9;value<=RC_POWER_MAX;++value) {
         uint8_t setting=(uint8_t)value;assert(command(RP_SET_POWER,&setting,1)==RP_OK);
@@ -184,11 +189,22 @@ int main(int argc,char **argv) {
     assert(command(RP_GET_RF_SWITCH,NULL,0)==RP_READBACK);
     switch_gpio.direction=0;
     assert(command(RP_APPLY,NULL,0)==RP_OK);
-    before=transfers;uint8_t unsafe[][5]={{0x83},{0x82},{0xc1},{0x9d},{0x97},{0x8e},{0x95},{0x86,0x36,0x40,0,0}};
+    before=transfers;uint8_t unsafe[][5]={{0x83},{0x82},{0xc1},{0x9d},{0x97},{0x8e},{0x95},{0x86,0x39,0x30,0,0}};
     for(unsigned i=0;i<sizeof(unsafe)/sizeof(unsafe[0]);++i) assert(sx126x_hal_write(NULL,unsafe[i],5,NULL,0)==SX126X_HAL_STATUS_ERROR);
     assert(transfers==before);
     /* Random malformed traffic must remain bounded and recover to a valid frame. */
     uint32_t rng=1;for(unsigned i=0;i<50000;++i) {rng=rng*1664525u+1013904223u;wire_size=0;rp_feed(&parser,(uint8_t)(rng>>24),now++);}
     wire_size=0;rp_abort(&parser);assert(command(RP_GET_VERSION,NULL,0)==RP_OK);
+#ifdef UART_RADIO_LIVE
+    frequency(868000000,RP_OK);lora(11,250000,5,0,RP_OK);
+    assert(command(RP_APPLY,NULL,0)==RP_OK&&pll_word==sx126x_convert_freq_in_hz_to_pll_step(868000000));
+    frequency(863000000,RP_OK);assert(command(RP_APPLY,NULL,0)==RP_COMBINATION);
+    frequency(870000000,RP_OK);assert(command(RP_APPLY,NULL,0)==RP_COMBINATION);
+    frequency(863125000,RP_OK);assert(command(RP_APPLY,NULL,0)==RP_OK);
+    frequency(869875000,RP_OK);assert(command(RP_APPLY,NULL,0)==RP_OK);
+    frequency(862999999,RP_UNSUPPORTED);frequency(870000001,RP_UNSUPPORTED);
+    frequency(800000000,RP_UNSUPPORTED);frequency(915000000,RP_UNSUPPORTED);
+    frequency(433875000,RP_OK);assert(command(RP_APPLY,NULL,0)==RP_OK);
+#endif
     puts("Binary protocol/config tests passed: CRC, escaping, limits, deadlines/wrap, recovery, staging, readback failures and RF rejection");
 }

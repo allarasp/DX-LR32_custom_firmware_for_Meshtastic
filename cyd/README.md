@@ -9,7 +9,7 @@ custom DIY variant, not an officially supported Meshtastic product.
 The full upstream Meshtastic stack supplies channel configuration, encryption,
 node database, USB PhoneAPI, Bluetooth and the built-in screen/menu UI. A custom
 `RadioInterface` replaces direct radio SPI with our version-1 binary UART link
-to DX-LR32 meshctrl v0.4.0 or v0.5.0. The updated source accepts both; the previously uploaded CYD image has not been replaced during the v0.5.0 CX32 work. It does not put a second Meshtastic stack on the CX32.
+to DX-LR32 meshctrl v0.4.0, v0.5.x or v0.6.0. The updated source accepts these versions; the previously uploaded CYD image has not been replaced during the v0.5.0 CX32 work. It does not put a second Meshtastic stack on the CX32.
 The WSL bridge is not required while the CYD is the radio host.
 
 **Default is EU_433, LongFast, public channel and radio TX disabled.** There is
