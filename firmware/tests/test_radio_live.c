@@ -31,6 +31,7 @@ sx126x_hal_status_t sx126x_hal_write(const void *c,const uint8_t *b,uint16_t n,c
  case 0x82:chip=5;break;
  case 0x83:chip=6;++starts;assert(pad==2);break;
  case 0x02:irq=0;break;
+ case 0x95:assert(b[1]==4&&b[2]==7&&b[3]==0&&b[4]==1);break;
  case 0x8e:transmitted_power=b[1];assert((int8_t)b[1]==rc_active.power);break;
  case 0x8c:packet_header=b[3];packet_crc=b[5];packet_iq=b[6];break;
  case 0x97:case 0x9d:assert(!"DIO2/DIO3 must remain disabled");
@@ -88,9 +89,14 @@ int main(void) {
  setup();pad_fault=true;assert(command(RP_STOP_RX,0,0)==RP_RADIO_ERROR&&!rc_active_valid);
  assert(command(RP_START_RX,zero,4)==RP_NOT_READY);
  setup();assert(command(RP_START_RX,zero,4)==RP_OK);live_link_fault();assert(chip==2&&pad==0&&!rc_active_valid);
- assert(live_handle(RP_GET_VERSION,0,0,out,0)==5&&out[2]==5&&out[3]==0);
+ assert(live_handle(RP_GET_VERSION,0,0,out,0)==5&&out[2]==5&&out[3]==1);
  setup();assert(command(21,arm,4)==RP_OK);assert(command(RP_START_RX,zero,4)==RP_OK);irq=4;assert(command(RP_SEND,packet,32)==RP_NOT_READY&&!starts);
  setup();fault=true;assert(command(RP_START_RX,zero,4)==RP_RADIO_ERROR&&pad==0&&resets);
  setup();rc_active_valid=false;assert(command(RP_START_RX,zero,4)==RP_NOT_READY);
+ for(int power=-9;power<=22;++power) {
+  setup();rc_active.power=(int8_t)power;assert(command(RP_ARM_TX,arm,4)==RP_OK);
+  assert(command(RP_SEND,packet,32)==RP_OK&&starts==1&&(int8_t)transmitted_power==power);
+ }
+ setup();rc_active.power=23;assert(command(RP_ARM_TX,arm,4)==RP_OK);assert(command(RP_SEND,packet,32)==RP_RANGE&&!starts);
  puts("Live radio host tests passed: RX metadata/255 bytes, CRC discard, single-arm TX, duty, IRQ busy, watchdog, cleanup and recovery");
 }

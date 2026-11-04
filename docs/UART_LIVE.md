@@ -1,11 +1,11 @@
-# Live raw-LoRa UART controller v0.5.0
+# Live raw-LoRa UART controller v0.5.1
 
 The `meshctrl` build name is retained for compatibility, but the CX32 handles
 raw LoRa packets and has no Meshtastic packet/encryption dependency. Existing
 protocol-v1 frame encoding, command IDs and payload layouts remain unchanged.
 Legacy `uartctrl` is still a separate non-RF v0.3.1 recovery target.
 
-BOOT and GET_VERSION identify 0.5.0. Capabilities mask is 0x7BFF: existing
+BOOT and GET_VERSION identify 0.5.1. Capabilities mask is 0x7BFF: existing
 0–9/11 features, bit 12 configurable TX, bit 13 radio/transport statistics,
 bit 14 queued UART output. Bit 10 (TCXO) remains clear.
 
@@ -17,10 +17,15 @@ never silently alter an active session. The host supplies integer Hz and all
 PHY parameters; the controller does not calculate Meshtastic channels/slots.
 
 TX now uses the configured SF, bandwidth, coding rate, LDRO, preamble, header,
-CRC, IQ, sync word and requested power. Power is a **commanded** -9..+10 dBm,
-not measured antenna output. The existing board PA tuple 02/02/00/01 and 200 us
-ramp remain fixed. The capability policy ceiling is +10 dBm. There is no
-higher-power or out-of-band override. Frequency stays within 433–434 MHz,
+CRC, IQ, sync word and requested power. Power is a **commanded** -9..+22 dBm,
+not measured antenna output. The nominal full-range SX1262 PA tuple is
+04/07/00/01 with a 200 us ramp (Semtech datasheet table 13-21). The host
+implements regional TX-power limits, antenna/EIRP accounting and application
+policy. Capabilities offsets 26 and 27 both report 22: silicon maximum and
+controller ceiling respectively. Offset 27 retains its historical wire position
+and legacy name but is not an EU power limit in this live image. The default
+requested power and test bridge remain -9 dBm. No value outside the hardware
+command range is accepted. Frequency stays within 433–434 MHz,
 including the configured bandwidth edges; the 433–532 MHz module declaration
 is not permission to operate throughout that range. 868 MHz stays rejected.
 
@@ -101,4 +106,5 @@ GFSK API, sleep API, arbitrary SPI commands, DIO2 or DIO3 controls are exposed.
 
 Existing v0.4.0 physical results remain historical evidence in
 [peer-test results](meshtastic-peer-test.md). Current release verification is
-recorded in [v0.5.0 results](v0.5.0-results.md).
+recorded in [v0.5.0 results](v0.5.0-results.md); the power-range follow-up is
+[v0.5.1](v0.5.1-results.md).

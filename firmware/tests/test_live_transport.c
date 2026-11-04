@@ -16,11 +16,14 @@ void radio_io_reset(bool low) {(void)low;}
 static bool allowed(uint8_t kind,uint16_t size) {assert(kind==2&&size==564);return admit;}
 static void put(uint8_t b) {(void)b;++written;}
 int main(void) {
-    for(int power=-10;power<=11;++power) {
+    for(int power=-10;power<=23;++power) {
         uint8_t b[3]={0x8e,(uint8_t)power,4};
         bool ok=sx126x_hal_write(0,b,3,0,0)==SX126X_HAL_STATUS_OK;
-        assert(ok==(power>=-9&&power<=10));assert(!selected);
+        assert(ok==(power>=-9&&power<=22));assert(!selected);
     }
+    uint8_t pa[]={0x95,4,7,0,1};
+    assert(sx126x_hal_write(0,pa,sizeof(pa),0,0)==SX126X_HAL_STATUS_OK);
+    pa[1]=5;assert(sx126x_hal_write(0,pa,sizeof(pa),0,0)==SX126X_HAL_STATUS_ERROR);
     uint8_t dio2[]={0x9d,1},dio3[]={0x97,0,0,0,1},freq[]={0x86,0x36,0x40,0,0};
     assert(sx126x_hal_write(0,dio2,sizeof(dio2),0,0)==SX126X_HAL_STATUS_ERROR);
     assert(sx126x_hal_write(0,dio3,sizeof(dio3),0,0)==SX126X_HAL_STATUS_ERROR);

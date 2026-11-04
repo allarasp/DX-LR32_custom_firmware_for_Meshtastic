@@ -134,6 +134,8 @@ build/meshctrl/controller.hex: build/meshctrl/controller.elf
 	$(OBJCOPY) -O ihex $< $@
 meshctrl: build/meshctrl/controller.bin build/meshctrl/controller.hex
 mesh-check: meshctrl
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -DUART_RADIO_PROTOCOL -DUART_RADIO_LIVE -Iinclude -I$(VENDOR)/sx126x_driver/src tests/test_radio_protocol.c src/radio_protocol.c src/radio_control.c src/rf_switch.c src/radio_transport.c $(VENDOR)/sx126x_driver/src/sx126x.c -o build/meshctrl/test_config
+	./build/meshctrl/test_config
 	$(HOSTCC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -DUART_RADIO_LIVE -DUART_RADIO_PROTOCOL -Iinclude -I$(VENDOR)/sx126x_driver/src tests/test_live_transport.c src/radio_transport.c src/radio_protocol.c -o build/meshctrl/test_live_transport
 	./build/meshctrl/test_live_transport
 	$(HOSTCC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Itests/gpio-stubs -Iinclude tests/test_live_io.c src/radio_live_io.c -o build/meshctrl/test_live_io

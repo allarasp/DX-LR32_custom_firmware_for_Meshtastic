@@ -8,13 +8,14 @@ The goal of the Meshtastic integration is to build a standalone Meshtastic messa
 
 > **Experimental — a two-way public-channel text exchange with a phone-connected 433 MHz LilyGO TTGO is verified.** The WSL bridge and meshctrl v0.4.0 exchanged real EU_433 LongFast messages. This establishes the tested text/profile path, not complete Meshtastic routing or feature compatibility. The CYD radio adapter still needs a wired test. See [peer-test evidence](docs/meshtastic-peer-test.md).
 
-**Current firmware: v0.5.0**, programmed and fully readback-verified. TX now
-uses the UART-selected LoRa modem/packet settings and power (-9..+10 dBm
-commanded), within the existing EU_433 frequency policy. Recovery, duplicate-TX
+**Current firmware: v0.5.1**, programmed and fully readback-verified. TX now
+uses the UART-selected LoRa modem/packet settings and power (-9..+22 dBm
+commanded; regulatory power policy belongs to the host), within the existing EU_433 frequency policy. Recovery, duplicate-TX
 protection, packet/error counters and asynchronous UART output are implemented.
 A new public-channel exchange received `Alr1 v050 ready`, delivered our reply to
 the phone, and received `V050 ok`. There was one transmission, at -9 dBm commanded.
 Size: **12,704 B Flash, 2,392 B static RAM + 1 KB stack**. See
+[v0.5.1 power-range update](docs/v0.5.1-results.md),
 [v0.5.0 test evidence and build commands](docs/v0.5.0-results.md) and
 [general-purpose UART contract](docs/UART_LIVE.md). This is still experimental,
 not a fully qualified universal modem or a complete Meshtastic router.

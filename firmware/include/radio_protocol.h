@@ -6,7 +6,7 @@
 #define RP_FW_MAJOR 0u
 #ifdef UART_RADIO_LIVE
 #define RP_FW_MINOR 5u
-#define RP_FW_PATCH 0u
+#define RP_FW_PATCH 1u
 #else
 #define RP_FW_MINOR 3u
 #define RP_FW_PATCH 1u

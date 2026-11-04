@@ -357,3 +357,12 @@ request; event 0x84 denotes finite RX timeout. Existing formats are unchanged.
 See [complete live-controller contract](UART_LIVE.md) for limits, capabilities,
 replay handling and recovery. The base v0.3.1 tables above describe the separate
 non-RF recovery image.
+
+### v0.5.1 power range
+
+Live SET_TX_POWER accepts -9..+22 dBm; the host enforces regional power policy.
+Capabilities bytes 26/27 both report 22 (hardware/controller maximum). Existing
+byte layouts and protocol version 1 are unchanged. Frequency remains dynamically
+configurable in integer Hz within the existing 433–434 MHz controller policy.
+The DX-LR32-A hardware declaration remains 433–532 MHz; an antenna change does
+not establish 868 MHz RF-front-end capability. See [power update](v0.5.1-results.md).

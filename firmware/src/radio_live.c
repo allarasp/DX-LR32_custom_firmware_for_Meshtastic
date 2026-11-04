@@ -153,7 +153,8 @@ uint16_t live_handle(uint8_t cmd,const uint8_t *p,uint16_t n,uint8_t *out,uint16
   have_tx=true;previous_seq=seq;previous_crc=crc;previous_len=n;++stats[4];
   /* Charge a conservative full 3-second attempt before any RF command. */
   next_tx=now+30000;duty_active=true;limit=airtime+100;
-  const sx126x_pa_cfg_params_t pa={2,2,0,1};
+  /* Nominal SX1262 full-range PA, datasheet table 13-21. No regional cap. */
+  const sx126x_pa_cfg_params_t pa={4,7,0,1};
   if(!prepare() || !live_pads(1) || !packet_limit((uint8_t)n) || !ok(sx126x_cfg_tx_clamp(0)) ||
    !ok(sx126x_set_pa_cfg(0,&pa)) || !ok(sx126x_set_tx_params(0,rc_active.power,SX126X_RAMP_200_US)) ||
    !ok(sx126x_write_buffer(0,0,p,(uint8_t)n)) || !live_pads(2))goto radio_error;

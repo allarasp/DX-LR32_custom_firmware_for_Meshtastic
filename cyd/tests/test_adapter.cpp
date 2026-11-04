@@ -20,7 +20,7 @@ static void handshake(Harness &h,uint8_t minor=5) {
  for(unsigned i=0;i<9;++i) {
   auto b=take();assert(!b.empty());const uint8_t expected[]={1,2,10,4,5,6,7,8,9};assert(b[2]==expected[i]);
   std::vector<uint8_t> p{0};
-  if(i==0) {p={0,0,minor,0,1};const uint8_t golden[]={1,0,1,1,0,0,0,0x4a,0x95};assert(std::equal(b.begin(),b.end(),golden));}
+  if(i==0) {p={0,0,minor,uint8_t(minor==5?1:0),1};const uint8_t golden[]={1,0,1,1,0,0,0,0x4a,0x95};assert(std::equal(b.begin(),b.end(),golden));}
   if(i==1) {p.resize(76);p[1]=1;p[2]=0xff;p[3]=0x0b;}
   if(i==3) {uint32_t f=b[7]|uint32_t(b[8])<<8|uint32_t(b[9])<<16|uint32_t(b[10])<<24;assert(f==433875000);}
   if(i==4)assert(b[7]==11&&b[12]==5&&b[13]==0);

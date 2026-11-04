@@ -99,7 +99,7 @@ int main(int argc,char **argv) {
     uint16_t crc=0xffff;for(const char *p="123456789";*p;++p) crc=rp_crc_byte(crc,(uint8_t)*p);
     assert(crc==0x29b1);
     rp_init(&parser,put,handle);assert(rc_init()==RP_OK);
-    assert(command(RP_GET_VERSION,NULL,0)==RP_OK && decoded[8]==0 && decoded[9]==3 && decoded[10]==1);
+    assert(command(RP_GET_VERSION,NULL,0)==RP_OK && decoded[8]==0 && decoded[9]==RP_FW_MINOR && decoded[10]==RP_FW_PATCH);
     assert(rp_u16(decoded+3)==0x7e7d);
     assert(command(RP_PING,NULL,0)==RP_OK && memcmp(decoded+8,"PONG",4)==0);
     assert(command(RP_GET_CAPABILITIES,NULL,0)==RP_OK && rp_u32(decoded+7+10)==RC_MODULE_MIN);
@@ -108,7 +108,10 @@ int main(int argc,char **argv) {
     unsigned before=transfers;
     frequency(868000000,RP_UNSUPPORTED);frequency(432999999,RP_UNSUPPORTED);frequency(532000001,RP_UNSUPPORTED);
     frequency(500000000,RP_RANGE);lora(4,250000,5,0,RP_RANGE);lora(7,99999,5,0,RP_RANGE);lora(7,250000,9,0,RP_RANGE);
-    uint8_t power=11;assert(command(RP_SET_POWER,&power,1)==RP_RANGE);power=(uint8_t)-10;assert(command(RP_SET_POWER,&power,1)==RP_RANGE);
+    for(int value=-9;value<=RC_POWER_MAX;++value) {
+        uint8_t setting=(uint8_t)value;assert(command(RP_SET_POWER,&setting,1)==RP_OK);
+    }
+    uint8_t power=RC_POWER_MAX+1;assert(command(RP_SET_POWER,&power,1)==RP_RANGE);power=(uint8_t)-10;assert(command(RP_SET_POWER,&power,1)==RP_RANGE);
     assert(transfers==before);
     uint32_t generation=rc_generation;
     frequency(433010000,RP_OK);assert(command(RP_APPLY,NULL,0)==RP_COMBINATION);

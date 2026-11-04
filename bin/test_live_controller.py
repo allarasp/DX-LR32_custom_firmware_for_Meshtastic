@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Physical v0.5.0 UART regression; configures and briefly receives, never transmits."""
+"""Physical v0.5.x UART regression; configures and briefly receives, never transmits."""
 import argparse
 from pathlib import Path
 import struct
@@ -14,12 +14,17 @@ def main():
     if not a.port and len(ports)!=1:ap.error('specify --port; exactly one CH340 is required')
     link=Link(a.port or str(ports[0]),a.log)
     try:
-        link.write(b'\x7e');assert link.request(1)==b'\0\0\5\0\1'
+        link.write(b'\x7e');version=link.request(1);assert version[:3]==b'\0\0\5' and version[4]==1
+        maximum=22 if version[3]>=1 else 10
         assert link.request(20)==b'\0PONG'
         caps=link.request(2);assert struct.unpack_from('<I',caps,2)[0]==0x7bff
         link.request(10)
         link.request(4,struct.pack('<I',868000000),expected=9)
-        link.request(7,struct.pack('<b',11),expected=7)
+        assert caps[26]==22 and caps[27]==maximum
+        link.request(7,struct.pack('<b',maximum+1),expected=7)
+        # Max-power configuration only: this utility never sends/arms TX.
+        configure(link,power=maximum)
+        assert struct.unpack_from('<b',link.request(14),40)[0]==maximum
         link.request(7,struct.pack('<b',-10),expected=7)
         # Configure varied PHY settings without activating TX; check available readbacks.
         for sf,bw,ldro,header,crc,iq,power,sync in ((7,125000,0,1,0,1,0,0x1424),(12,250000,1,0,1,0,10,0x1424),(11,250000,0,0,1,0,-9,0x24b4)):

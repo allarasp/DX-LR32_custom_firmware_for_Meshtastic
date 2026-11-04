@@ -6,7 +6,12 @@
 /* Matches inspected Meshtastic EU_433 region; no slot calculation here. */
 #define RC_POLICY_MIN 433000000u
 #define RC_POLICY_MAX 434000000u
+#ifdef UART_RADIO_LIVE
+/* SX1262 command range; regional policy belongs to the host. */
+#define RC_POWER_MAX 22
+#else
 #define RC_POWER_MAX 10
+#endif
 #define RC_CONFIG_SIZE 20u
 struct rc_config {
     uint32_t frequency, bandwidth;

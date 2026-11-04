@@ -185,7 +185,7 @@ v0.3.1 binary still matches its preserved hash. For host dependencies, codec tes
 and peer commands see [MESHTASTIC_TEST.md](MESHTASTIC_TEST.md). All builds are
 hardware-independent; only the explicit host bridge opens USB-UART.
 
-## Current live general-purpose build: v0.5.0
+## Current live general-purpose build: v0.5.1
 
 ```sh
 make -C firmware -j2 check radio-check uart-check protocol-check mesh-check
@@ -196,7 +196,7 @@ sh experiments/radio-smoke/check.sh
 python3 bin/test_live_controller.py
 ```
 
-The retained `meshctrl` target now produces v0.5.0: 12,704 B Flash and 2,392 B
+The retained `meshctrl` target now produces v0.5.1: 12,704 B Flash and 2,392 B
 static RAM plus a reserved 1,024 B stack, leaving 680 B outside those allocations.
 The measured stack touched span in the recorded test was 552 B; this is not a
 worst-case proof. Earlier size/result tables are historical. Rebuilding the
@@ -204,3 +204,7 @@ separate v0.3.1 recovery source after shared parser changes produces 7,688 B
 Flash / 1,000 B static RAM; the original 7,664 B recovery image is retained
 locally. The original v0.4.0 live image is also saved locally before programming.
 See [complete release evidence](v0.5.0-results.md).
+
+The v0.5.1 follow-up changes the live power command ceiling to the SX1262
+hardware maximum (+22 dBm) with full-range PA configuration; regional power
+policy is delegated to the host. See [v0.5.1 evidence](v0.5.1-results.md).
