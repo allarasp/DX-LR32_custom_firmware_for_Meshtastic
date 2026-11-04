@@ -130,4 +130,6 @@ The utility discovers a single CH340 by-id port or accepts `--port`. SET operati
 
 ## Radio notes
 
+The latest [RF-switch investigation](docs/rf-switch-investigation.md) confirms factory `9D 01` initialization **and** complementary PC3/PC4 direction outputs; the physical switch-control nets remain unresolved. The oscillator is now confirmed as a passive 32 MHz crystal, so DIO3 TCXO control must remain disabled. This analysis did not change v0.3.0 or activate RF.
+
 This is the **433 MHz module variant**, not an 868 MHz radio. Frequency selection, output power, duty cycle, and regional configuration must comply with applicable rules. Never transmit without a suitable antenna and verified RF configuration.

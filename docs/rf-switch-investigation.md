@@ -1,0 +1,315 @@
+# RF-switch investigation — archived factory-code analysis, 2026-11-04
+
+## Findings and limits
+
+**The recovered factory radio initialization issues `9D 01`
+(SetDIO2AsRfSwitchCtrl enabled). This is executable command construction and a
+call into the SPI transport, not an incidental byte match.** However, the same
+firmware also drives **PC3 and PC4 as complementary direction outputs** around
+TX and receive/non-TX paths. Therefore **DIO2 configuration does not establish
+which net actually controls the PCB's RF switch**. PC3/PC4 must also be traced.
+
+No executable `97 ...` TCXO-control transaction was found in the recovered
+initialization or inspected surviving command routines. This is a bounded
+negative finding, not proof that no erased or unrecognized path ever issued it.
+The newly confirmed passive crystal is independent evidence to leave DIO3 TCXO
+control disabled.
+
+This investigation used saved files only. **No OpenOCD, serial-port access,
+flashing, erasing, reset, TX/RX, DIO2 or DIO3 control operation was performed.**
+No firmware source or working v0.3.0 image was changed. No archived factory code
+was executed. Numeric command sequences below are decoded historical intent,
+not commands run on the physical radio during this investigation.
+
+## Evidence source and coverage
+
+Input: `logs/factory-analysis/current-flash.bin`, 65,536 bytes, SHA-256:
+`e18c9ee18865006d62cc8e19991a273c9a59410e874e71951e9d5563ccb20a9b`.
+Its companion `current-flash.dis` and `after-flash.bin` were also retained from
+the earlier bring-up. Addresses below are original zero-based Flash addresses,
+identical to offsets in that binary; Thumb function pointers have bit 0 set.
+
+This is the **archived mixed image captured before the v0.2.1 correction**:
+`0x0000..0x13FF` already contained custom firmware/erased application sectors;
+factory code/data survived from `0x1400` onward. It is not a complete factory
+backup or the currently running v0.3.0 image. Some of this archived low-address
+factory code was overwritten by the larger v0.3.0 image later. This analysis
+uses the saved snapshot, not another target dump. Original reset/startup and
+some GPIO/library helper bodies are unavailable.
+
+Disassembly was checked against the bytes, literal pools, direct call targets,
+function-pointer tables and argument flow. Blind `objdump -D` also disassembles
+data as instructions; its apparent instructions at table/literal addresses
+are not treated as executable evidence.
+
+## 1. Proof of `9D 01` on the factory initialization path
+
+### Reachability beyond an unused library function
+
+1. The surviving main-like entry at `0x3518` calls board/application setup
+   `0x34CC`. Setup calls `0x542C` at `0x34F8`, which configures board GPIOs and
+   SPI, then calls radio/application initialization `0x4E78` at `0x350C`.
+2. At `0x4E7A..0x4E80`, code loads the interface table at `0x7820`, reads its
+   first function pointer and calls it with a callback pointer. The first word
+   at `0x7820` is `0x00005AB5`, i.e. Thumb function **`0x5AB4`**.
+3. Another configuration/reinitialization path calls the same table entry at
+   `0x4A9A..0x4AA0`; `0x72E0` calls that path's function at `0x4A0C`.
+4. Function `0x5AB4` contains the following uninterrupted argument setup/call:
+
+```text
+0x5AD6: movs r1, #1           ; enable = true
+0x5AD8: movs r0, #0           ; context argument
+0x5ADA: bl   0x6A90           ; RF-switch command constructor
+```
+
+The original reset entry was overwritten, so a complete reset-to-main proof
+cannot be reconstructed. These surviving setup, interface and reinitialization
+references nevertheless establish a normal radio-initialization call path;
+`0x6A90` is not merely an unreferenced command stub. Its direct call at `0x5ADA`
+is the only direct call to it identified in the surviving disassembly.
+
+### Command construction and wire length
+
+| Address | Evidence |
+| --- | --- |
+| `0x6A94` | Copies incoming `r1` (enable) to `r4` |
+| `0x6A96..0x6A9A` | ADR/LDR loads the word at `0x6ABC`, then stores it at `SP+4` |
+| `0x6ABC` | Literal word `0x0000009D`, bytes `9D 00 00 00` |
+| `0x6A9C..0x6AA6` | Copies enable into the byte at `SP+5`; two XOR-by-1 instructions cancel, so 1 remains 1 |
+| `0x6AAC` | Sets command length `r2 = 2` |
+| `0x6AAE` | Sets command pointer `r1 = SP+4` |
+| `0x6AA8..0x6AB2` | Sets additional data pointer/length to zero and forwards context |
+| `0x6AB4` | Calls SPI write transport `0x6944` |
+
+Thus the command buffer is exactly **`9D 01`**, length two, without an appended
+payload. The odd-looking XOR sequence does **not** turn it into `9D 00`.
+
+The transport is also identifiable as real SPI:
+
+- `0x694E`: waits through `0x6264`, the previously identified PB5/BUSY reader.
+- `0x6954`: selects NSS through `0x6218` with argument 0.
+- `0x695C`: sends the command buffer through byte loop `0x627C`.
+- `0x6964`: sends the separate data buffer; its length is zero for this command.
+- `0x696A`: releases NSS through `0x6218` with argument 1.
+- `0x6290`: the byte loop calls transmitter `0x1A70`; its `0x1AA8` store writes
+  to peripheral offset `+0x0C`, SPI DATA. The handle's SPI base is initialized
+  to `0x40000800` at `0x61EE..0x61F2`, from literal `0x6210`.
+- `0x6218` calls `0x1C10`; `0x1C14` writes peripheral offset `+0x04`, SPI SSN.
+  Factory SPI pin setup uses PA2 AF3 for NSS. NSS remains asserted across both
+  transmitted bytes.
+
+This proves the recovered code **requests a two-byte SPI transaction during
+initialization when that path runs and hardware permits it**. It is static
+code evidence, not a logic-analyzer capture of the original factory firmware.
+
+### Surrounding initialization sequence
+
+| Call site | Destination | Decoded action |
+| --- | --- | --- |
+| `0x5ABE` | `0x6F60 -> 0x692C` | NSS-based wake/BUSY synchronization; no opcode bytes in this helper |
+| `0x5AC4` | `0x69E4 -> 0x68F4` | Hardware reset via table entry 0 = PB4 |
+| `0x5ACA` | `0x6974` | Retention-list setup using the three register addresses at `0x7B88`: 08AC, 0889, 0736 |
+| `0x5AD2` | `0x6C70` | `96 01`: regulator mode DC/DC |
+| **`0x5ADA`** | **`0x6A90`** | **`9D 01`: enable automatic DIO2 RF-switch control** |
+| `0x5AE2` | `0x6E10` | `80 00`: standby RC |
+| `0x5AEA` | `0x6E10` | `80 01`: standby XOSC |
+| `0x5AF4` | `0x6E38` | Write register 0911/0912 values 05/05 (XTA/XTB trim) |
+| `0x5AFC` | `0x6D8C` | `93 30`: RX/TX fallback to standby XOSC |
+| `0x5B02` | `0x6460` | Read/modify/write register 08D8, OR mask 1E |
+| `0x5B08` | `0x5DC0` | Update software state only |
+
+The separate standby helper at `0x602A` later writes XTA/XTB trim 12/12 at
+`0x6050`; 05/05 is therefore not a universal, permanent factory setting. Reset
+uses delay arguments 10/50/20; units are unresolved because its original delay
+helper was overwritten. None of these settings is recommended for copying into
+v0.3.0 as part of this analysis.
+
+## 2. `0x97` search and crystal findings
+
+Scanning `0x1400..0xFFFF` finds twelve bytes equal to `97`, at:
+`1698, 2163, 218F, 377D, 3984, 5236, 555B, 57C8, 67FA, 7828, 7A01, 7B04`.
+Their contexts do not establish a TCXO command:
+
+- `1698` and `57C8`: immediate/offset bytes within Thumb literal-load instructions.
+- `2163`, `218F`, `377D`, `555B`: parts of stack-store instructions.
+- `3984`: part of a BL instruction targeting the GPIO write helper `0x10B4`.
+- `5236`, `67FA`: parts of branch encodings.
+- `7828`: low byte of function pointer `0x00005D97`; function `0x5D96` selects
+  packet type through the `8A` wrapper at `0x6C48`.
+- `7A01`, `7B04`: constant/data-region matches; no traced construction of an
+  opcode/voltage/24-bit-delay SPI buffer from them.
+
+There is no aligned literal word `0x00000097` in the surviving range, no
+`MOVS Rn,#0x97` match there, and no identified five-byte TCXO-control constructor
+or call in the inspected radio initialization. Absence of those patterns alone
+would be insufficient; the complete recovered initialization and neighboring
+SPI-command construction were inspected as well. **No execution of 0x97 is
+established; a global historical “never executed” assertion is not possible
+with a partial image and unresolved indirect/erased paths.**
+
+The owner's newly confirmed wiring is a 32 MHz **passive 3225 crystal**:
+crystal pad 1 -> SX XTB/pin 4; pad 3 -> XTA/pin 3; pads 2/4 -> GND. SX DIO3/pin 6
+has a capacitor to ground. These findings supersede earlier oscillator
+uncertainty. The XOSC/trim code is consistent with that crystal. DIO3 capacitor
+presence does not justify enabling a TCXO regulator. **Do not enable 0x97.**
+
+## 3. Dedicated MCU GPIO direction-control evidence
+
+Factory GPIO setup `0x39BC` includes mask `0x18` on GPIOC (`0x40021800`) at
+`0x3A38..0x3A4A`: PC3/PC4 output configuration. It requests PC3=1 at `0x3A54`
+and PC4=0 at `0x3A5E`. Original GPIO helper bodies at `0x0E1A`/`0x10B4` were
+lost; interpretation uses their consistent argument conventions, the surviving
+call sites/literals, device documentation and the previously successful
+PB4/PB5 reconstruction. Requested levels below are not fresh voltage measurements.
+
+| Helper | Decoded GPIO write arguments | Requested PC3 | Requested PC4 |
+| --- | --- | ---: | ---: |
+| `0x3B18` | GPIOC/mask 08/value 1; GPIOC/mask 10/value 0 | 1 | 0 |
+| `0x3BA0` | GPIOC/mask 08/value 0; GPIOC/mask 10/value 1 | 0 | 1 |
+
+The writes are sequential. A receive-to-TX change requests an intermediate
+PC3/PC4 state of 0/0; TX-to-receive requests 1/1 before reaching its final state.
+The interval is not established, and neither break-before-make behavior nor
+validity of these transitions for the unidentified switch is proven.
+
+Direction correlation goes beyond coincidental GPIO references:
+
+- High-level send routine `0x5750` calls `0x3BA0` at **`0x5796`**, before its
+  packet-transmit operation through interface slot `+0x24`.
+- Table slot `0x7844` contains `0x5D45`; this transmit routine at `0x5D44`
+  writes the packet buffer, then calls `0x6E58` at `0x5D7A`.
+  That reaches `0x6ECC`, whose command literal at `0x6EFC` is **83 (SetTx)**.
+- Receive/rearm and non-TX return paths call `0x3B18`, including **`0x4E92`**,
+  **`0x4ACE`**, **`0x4F3E`**, **`0x511E`**, **`0x538E`**, and **`0x594A`** in
+  send recovery. For a concrete RX connection, `0x4E92` is followed by the
+  receive interface call at `0x4EAC..0x4EB0`, slot `+0x58` (table `0x7878`,
+  pointer `0x5CFD`). Function `0x5CFC` reaches `0x6DB4`, whose command literal
+  `0x6DE4` is **82 (SetRx)**. Other helper calls occur before or after RX, or
+  on branches selecting another non-TX state; not every call proves RX is
+  already active. `0x7204` is another direct call to `0x3B18`.
+
+These code paths were inspected only; **no TX/RX command was sent**. The pair
+is strong evidence of deliberate external direction control. It could select
+the switch, enable another front-end stage, or serve another direction-related
+function. It is not yet a verified physical RF-switch net.
+
+### Correlation with board pin mapping
+
+| MCU port / QFN20 pin | Established role or candidate |
+| --- | --- |
+| **PC3 / pin 10** | Factory high in receive/non-TX paths, low for send; candidate complementary control |
+| **PC4 / pin 11** | Factory low in receive/non-TX paths, high for send; candidate main control |
+| PA3 / pin 7 | Measured external AUX; its high/low helpers are 39A8/3994, distinct from the PC3/PC4 pair |
+| PC5 / pin 12, PC6 / pin 13 | Measured external M0/M1; input setup uses mask 60 at 3AC8..3AD8, not mask 18 |
+| PB4 / pin 9 | Verified radio NRESET, factory table 7E6C entry 0 |
+| PB5 / pin 8 | Verified radio BUSY, factory table 7E7C entry 2 |
+| PD4 / pin 18 | Verified DIO1 input/IRQ, table entry 1 |
+| PA2 / pin 3 | Verified NSS; SPI pin selection is separate from antenna switching |
+| PD5/PD6 / pins 19/20 | Verified external UART TX/RX |
+| PC7/PD1 / pins 14/15 | SWD, unrelated to the identified direction-control pair |
+
+PC3/PC4 package positions follow the CX32L003 QFN20 pin table, not TSSOP20
+numbering. Existing v0.3.0 source does not set up or drive this pair for RF
+control; this investigation makes no such change.
+
+## 4. PE4259 review and physical hypotheses
+
+The marking approximately “S40C CFCI” does **not** positively identify a PE4259.
+The reported six-pin layout is compatible with the PE4259's RF1/GND/RF2/CTRL/
+RFC/pin-6 arrangement, but that does not identify the actual part.
+
+For a **confirmed PE4259**, pSemi's [datasheet](https://psemi.com/pdf/datasheets/pe4259ds.pdf)
+(DOC-03694-5.01, July 2026, tables 5–7) specifies:
+
+| Mode | Pin 6 | Pin 4 | Selected path |
+| --- | --- | --- | --- |
+| Single-control | fixed VDD | high | RFC–RF1 |
+| Single-control | fixed VDD | low | RFC–RF2 |
+| Complementary | low | high | RFC–RF1 |
+| Complementary | high | low | RFC–RF2 |
+
+Single-control uses a separate supply on pin 6; complementary control uses
+opposing logic levels on pins 4/6. Recommended VDD is 1.8–3.3 V, with high/low
+thresholds 0.7/0.3 times VDD. These specifications are conditional on part identity.
+[pSemi AN37](https://psemi.com/pdf/app_notes/an37.pdf) (DOC-57537-1.01, November
+2025) also discusses transient current and source/sink requirements for the
+complementary supply/control drive; complementary-looking firmware alone does
+not establish an electrically valid implementation. No resistor or drive change
+is proposed here.
+
+Semtech's DIO2 automatic mode is high during TX and low otherwise, including RX;
+it asserts before PA ramp-up and drops after ramp-down. This follows
+[Semtech's command encoder](https://github.com/Lora-net/sx126x_driver/blob/a10c5dfdf89788c6ac805e9fe98889de44175aa2/src/sx126x.c)
+and SX1261/2 Rev 2.2 sections 8.3.2/13.3.5, tables 13-32/33
+([Semtech-authored PDF mirror](https://resource.heltec.cn/download/WiFi_LoRa_32_V4/datasheet/SX1261_2%20V2-2.pdf)).
+The crystal/TCXO command distinction is in section 13.3.6, table 13-34.
+
+With the owner's tentative RF1->RFO and RF2->receive-path assignment:
+
+| Hypothesis | Proposed net mapping, **not established** | Why plausible |
+| --- | --- | --- |
+| A: automatic, single-control | switch pin 4 <- SX DIO2/pin 12; switch pin 6 <- fixed VDD | DIO2 polarity fits TX->RF1 / RX->RF2 |
+| B: MCU complementary | switch pin 4 <- PC4/pin 11; switch pin 6 <- PC3/pin 10 | Factory requested TX=PC4 high/PC3 low; RX reverses it |
+| C: split front-end controls | DIO2 and PC3/PC4 serve different devices/stages, or one output is unused | Both mechanisms can be configured even if only one reaches this switch |
+
+**Factory code cannot choose between these hypotheses or establish the wiring.**
+In particular, `9D 01` might enable an unconnected DIO2 while the MCU pair drives
+the switch. Conversely the pair could drive something else. Do not tie control
+sources together or enable both based solely on this analysis.
+
+## 5. Measurements still needed
+
+These are proposed future checks; none was performed in this task:
+
+1. Confirm switch package orientation/pin 1 and obtain a reliable part marking
+   or BOM identification. The PE4259 truth table must not be assumed for an
+   unidentified pin-compatible device.
+2. With power removed, trace **switch pin 4** to **SX DIO2/pin 12**,
+   **MCU PC4/pin 11**, and **MCU PC3/pin 10**. Record any series resistor,
+   inverter or transistor rather than treating no direct continuity as no net.
+3. Trace **switch pin 6** to known VDD points and PC3/PC4/DIO2. Distinguish a
+   hard supply connection from semiconductor/ESD conduction; check resistance
+   in both meter polarities. “Possibly VDD” is not enough to select a mode.
+4. Confirm pin 2 ground, pin 5 antenna common, and both RF branches through their
+   matching/DC-block components. A receive branch touching RFI_N does not by
+   itself describe the complete differential receive/matching network.
+5. After the control nets/part are identified, measure idle supply/control
+   voltages. Current firmware leaves RF switching disabled; an idle voltage
+   alone cannot prove TX/RX polarity or RF-path selection. Dynamic control and
+   RF-path tests require a later, explicitly scoped stage; none is authorized
+   or attempted by this read-only investigation.
+
+The most useful next check is **PC4 -> switch pin 4 and PC3 -> switch pin 6**, in
+addition to the original DIO2 hypothesis. DIO3 TCXO control remains excluded by
+the confirmed passive crystal. RF-switch activation remains blocked in v0.3.0.
+
+## Reproduction and validation
+
+All analysis commands operate on saved files, for example:
+
+```sh
+arm-none-eabi-objdump -D -b binary -m arm -M force-thumb \
+  --start-address=0x5ab4 --stop-address=0x5b14 logs/factory-analysis/current-flash.bin
+arm-none-eabi-objdump -D -b binary -m arm -M force-thumb \
+  --start-address=0x6944 --stop-address=0x6ac0 logs/factory-analysis/current-flash.bin
+arm-none-eabi-objdump -D -b binary -m arm -M force-thumb \
+  --start-address=0x3a38 --stop-address=0x3bbc logs/factory-analysis/current-flash.bin
+python3 logs/rf-switch-analysis/check_evidence.py
+sha256sum firmware/build/uartctrl/controller.bin
+```
+
+The ignored evidence checker validates the archived image hash, Thumb BL targets,
+init arguments, opcode literal/buffer stores, command length, SPI SSN/DATA stores
+and complementary GPIO helper arguments. It passed. It is a byte-level static
+cross-check, not an emulator, hardware test or proof of all possible paths.
+No firmware build/tests were rerun because only documentation changed. The
+local v0.3.0 binary remains SHA-256
+`f99f0d03f340f1a922397e2b99574ace544d81745f093a512ed1b817304b49d1`.
+
+Local audit output is under ignored `logs/rf-switch-analysis/`: extracted
+`radio-routines.dis`, `gpio-calls.txt`, `check_evidence.py`, `evidence-check.log`
+and `sources.json`. pSemi PDFs were reviewed through the web PDF reader;
+direct-file download returned HTTP 403, so no downloaded PDF hash is claimed.
+Raw factory images, full disassembly, identifiers and local logs are not pushed.
+For QFN orientation use the [hardware pin-counting guide](hardware-photos-and-pin-counting.md);
+for MCU pin functions use the [vendor CX32L003 datasheet](https://www.zbitsemi.com/upload/file/20200903/20200903105452_99571.pdf).
