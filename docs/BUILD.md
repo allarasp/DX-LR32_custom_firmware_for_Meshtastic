@@ -23,7 +23,7 @@ The ignored dependency checkouts are not submodules of this repository.
 
 | Target | Output | Status |
 | --- | --- | --- |
-| `make -C firmware uartctrl` | `firmware/build/uartctrl/controller.{elf,bin,hex,map}` | Binary UART controller v0.3.1; offline tests pass; physical deployment/XOSC pending (v0.3.0 remains installed) |
+| `make -C firmware uartctrl` | `firmware/build/uartctrl/controller.{elf,bin,hex,map}` | Binary UART controller v0.3.1; offline and physical UART regression/XOSC tests pass; programmed/readback verified |
 | `make -C firmware radiodiag` | `firmware/build/radiodiag/controller.{elf,bin,hex,map}` | v0.2.1, flashed/readback verified; UART and non-RF SPI diagnostics physically pass |
 | `make -C firmware uartdiag` | `firmware/build/uartdiag/controller.{elf,bin,hex,map}` | UART diagnostic v0.1.1, physically tested at 115200 8N1 |
 | `make -C firmware all` | `firmware/build/controller.{elf,bin,hex,map}` | Experimental UART/SX1262 foundation; UART 9600 8N1, SPI mode 0 at 500 kHz; not flashed |

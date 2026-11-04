@@ -138,6 +138,16 @@ denied-request routine from the physical image. The binary GET_RF_SWITCH
 command reports masked input/configuration/latch registers, never writes them.
 Incorrect configuration is reported, not repaired by driving a pin.
 
+### Physical v0.3.1 follow-up
+
+After SWD was restored, v0.3.1 was programmed and readback-verified. The physical
+UART regression and one RC/XOSC/RC diagnostic passed. GET_RF_SWITCH before/after
+returned `0000000000000000000000000800`: both pads remain inputs with no pulls
+or alternate functions, latch zero, sampled PC3 HIGH / PC4 LOW. Input voltages
+are external bias observations, not proof of a safe output load or RF path.
+No PC3/PC4 drive, DIO2/DIO3 control, or RF operation was performed. See
+[oscillator test results](oscillator-test.md) for commands and evidence.
+
 ## Archived offline investigation — 2026-11-04
 
 The remainder records the earlier read-only analysis and its then-current

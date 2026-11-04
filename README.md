@@ -6,14 +6,14 @@ The goal is to build a standalone Meshtastic messaging device with an **ESP32-24
 
 > **Work in progress — not yet Meshtastic-compatible.** The custom MCU firmware boots and UART diagnostics work on real hardware. The v0.3.0 binary UART controller supports dynamic integer-Hz frequency and LoRa/packet configuration in standby RC, with physical CH340 tests and partial SX1262 register readbacks. RX/TX remain disabled; requested TX power is staged only. LoRa packet communication and Meshtastic integration are **not yet verified**.
 
-Prepared **v0.3.1** adds a bounded, non-transmitting crystal diagnostic and
-read-only RF-switch GPIO inspection. Host tests and the firmware build pass
-(7,664 B Flash, 992 B static SRAM plus 1 KB stack). **It has not yet been
-flashed or physically XOSC-tested**: ST-Link detects target power but cannot
-connect, including retries after the user’s contact work. The working v0.3.0 remains installed.
-See [oscillator test status](docs/oscillator-test.md) and
-[RF-switch investigation](docs/rf-switch-investigation.md). PC3/PC4 drive,
-RX/TX, DIO2 control and DIO3 TCXO control remain disabled.
+**v0.3.1 is programmed, readback-verified and physically tested.** Its bounded
+crystal diagnostic reported standby RC → XOSC → RC (`0x22 → 0x32 → 0x22`),
+zero errors at every step, and 18 ms elapsed. UART regression tests and binary
+PING/PONG pass. Build size is 7,664 B Flash and 992 B static SRAM plus 1 KB stack.
+See [measured oscillator results](docs/oscillator-test.md) and
+[RF-switch investigation](docs/rf-switch-investigation.md). PC3/PC4 remained
+undriven inputs; their unknown load still blocks active RF switching. RX/TX,
+DIO2 control and DIO3 TCXO control remain disabled. No RF transmission occurred.
 
 ## Architecture
 
@@ -109,7 +109,7 @@ python3 firmware/tools/prepare_deps.py
 make -C firmware -j2 protocol-check radio-check uart-check check
 ```
 
-- `firmware/build/uartctrl/controller.elf`: **v0.3.1 binary UART controller**, built and host-tested; physical deployment pending. 7,664 bytes Flash, 992 bytes static SRAM plus 1 KB stack. Its v0.3.0 predecessor was programmed/readback-verified and physically tested after power restoration. Dynamic center frequency is sent as integer Hz; capability responses distinguish the declared 433–532 MHz module band from the current 433–434 MHz EU_433 policy. 868 MHz and RF activation are rejected.
+- `firmware/build/uartctrl/controller.elf`: **v0.3.1 binary UART controller**, programmed/readback-verified; physical UART regression and RC/XOSC/RC tests pass. 7,664 bytes Flash, 992 bytes static SRAM plus 1 KB stack. Its v0.3.0 predecessor was programmed/readback-verified and physically tested after power restoration. Dynamic center frequency is sent as integer Hz; capability responses distinguish the declared 433–532 MHz module band from the current 433–434 MHz EU_433 policy. 868 MHz and RF activation are rejected.
 - `firmware/build/radiodiag/controller.elf`: **v0.2.1 radio diagnostics**, flashed and UART-tested; 5,100 bytes Flash, 340 bytes static SRAM plus 1 KB stack. `RADIO_RESET`, `RADIO_STATUS`, `RADIO_ERRORS`, and `RADIO_TEST` are implemented with timeouts. Physical reset, initialization, status/error queries and reversible packet-type checks pass: status `0x22`, errors `0x0000`. No RF transmissions or DIO2/DIO3 control.
 - `firmware/build/uartdiag/controller.elf`: the **v0.1.1 UART diagnostic firmware tested on hardware**, using 115200 8N1. Its binary is 1,712 bytes; static SRAM is 60 bytes, plus a reserved 1 KB stack.
 - `firmware/build/controller.elf`: the **experimental SX1262 foundation**, built and host-tested but not flashed or radio-verified. It currently uses 9600 baud and a 4 MHz clock; it is a separate development image.

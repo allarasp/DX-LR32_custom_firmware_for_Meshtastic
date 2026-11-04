@@ -1,22 +1,57 @@
 # v0.3.1 passive-crystal diagnostic
 
-## Result: offline preparation complete; hardware test pending
+## Result: physical RC / XOSC / RC test passed
 
-On 2026-11-04 the v0.3.1 image built and all host tests passed. **It has not
-been flashed and TEST_XOSC has not run on the physical SX1262.** The target
-continues to report firmware 0.3.0 over CH340 UART. No erase, unlock, option-byte
-change, programming or RF activation occurred during this stage.
+On 2026-11-04 SWD communication was restored at 100 kHz after the earlier
+connection failures. The known target passed the private identity guard and
+reported the expected Cortex-M0+ and 64 KB CX32L003 Flash configuration. A full
+64 KB pre-programming readback was saved locally; its first 6,888 bytes exactly
+matched the preserved working v0.3.0 image.
 
-ST-Link enumerates and reports approximately 3.31 V, but OpenOCD cannot enter
-SWD: `init mode failed (unable to connect to the target)`. Native SWD at 100
-and 50 kHz, USB reattachment, contact reseating, and HLA at 50 kHz did not
-restore access. UART GET_VERSION returned payload `00 00 03 00 01` (OK,
-firmware 0.3.0, protocol 1). The user reported that SWD contacts need soldering.
-After the user requested another attempt, both USB adapters were reattached
-to WSL. ST-Link again failed at 100 and 50 kHz (3.31 V); UART again returned
-v0.3.0. Further programming was stopped. Target identity and
-current Flash contents could not be reverified, so guarded programming did
-not begin. USB enumeration/target voltage alone do not establish MCU identity.
+One guarded programming attempt installed v0.3.1 using the audited `cx32l003`
+driver. OpenOCD verification and host byte-for-byte comparison of the 7,664-byte
+readback both passed. Only the required application sectors were erased; no
+read-protection removal, mass erase, unlock, or option-byte change was needed.
+The existing USERCFG values remained unchanged. This does not add an independent
+read-protection decoder; successful readback/programming establishes access for
+this device state.
+
+The documented volatile full-MCU reset started the image. CH340 captured the
+binary BOOT event for v0.3.1 with initialization OK, and GET_VERSION confirmed
+0.3.1 / protocol 1. The complete physical UART regression suite passed, including
+PING/PONG, dynamic configuration/register readbacks, unsupported-frequency and
+RF-operation rejection, CRC/framing errors, partial-frame timeout and recovery.
+
+The **single** TEST_XOSC invocation returned:
+
+```text
+payload: 00ff00223222000000000000000012000000
+status: OK; flags: 0x00FF; elapsed: 18 ms
+initial RC status: 0x22; device errors: 0x0000
+XOSC status:       0x32; device errors: 0x0000
+final RC status:   0x22; device errors: 0x0000
+first failure phase: 0; HAL error: 0
+```
+
+GET_CONFIG was identical before/after: active configuration remained valid,
+dirty=false, applied/readback masks 0x0F, generation 5. GET_RF_SWITCH returned
+`0000000000000000000000000800` both times: PC3/PC4 direction, pulls, alternate
+functions and latch masks were zero; input mask was 0x08 (PC3 HIGH / PC4 LOW).
+**Those are undriven input levels, not MCU-driven RF-switch states.** Final
+GET_STATUS again returned standby RC 0x22 with zero errors.
+
+No TX/RX/SetFs/PA, DIO2 RF-switch-control, DIO3 TCXO-control or PC3/PC4 drive
+operation was issued. This verifies crystal mode entry/exit and radio responsiveness,
+not crystal frequency accuracy, RF performance, or Meshtastic interoperability.
+The RF-switch electrical load remains unresolved and active control stays disabled.
+
+### Earlier connection failures
+
+Before restoration, ST-Link repeatedly enumerated and measured about 3.31 V but
+failed `init mode failed (unable to connect to the target)` at 100/50 kHz through
+native SWD and HLA. v0.3.0 remained responsive over UART throughout those checks.
+No erase or programming occurred until the identity/image checks above succeeded.
+The failed-attempt logs were retained alongside the successful preflight.
 
 The working v0.3.0 build outputs were preserved locally at
 `logs/v0.3.1/recovery-v0.3.0/controller.{bin,elf,hex,map}` before rebuilding.
@@ -69,7 +104,7 @@ Tools: GNU Arm GCC 13.2.1, Arm binutils 2.42, host GCC 13.3.0, Make 4.3,
 Python 3.12.3. Audited local OpenOCD reports
 `0.12.0+dev-g2431daa-dirty (2026-11-03-18:08)`; ST-Link reports V2J34S7.
 The configured Flash driver is `cx32l003`, 64 KB at zero, 128 sectors of 512 B.
-No driver operation was reached because target connection failed.
+The restored connection allowed the guarded write, verification and readback.
 
 Run from the project root:
 
@@ -118,12 +153,15 @@ These are mocked radio tests and do **not** demonstrate a working crystal.
 ## Connection attempts and retained local evidence
 
 The private preflight verifies the known target identity and old firmware
-before allowing programming. It failed at `init`, before its halt/guard/readback
-steps. Exact invoked preflight commands:
+before allowing programming. Earlier attempts failed at `init`; the restored
+attempt completed the guard, image verification and full Flash readback.
+Commands used:
 
 ```sh
 tools/openocd-cx32/bin/openocd -f configs/bringup-v031-preflight.cfg
 tools/openocd-cx32/bin/openocd -f configs/bringup-v031-preflight-slow.cfg
+tools/openocd-cx32/bin/openocd -f configs/bringup-v031-program.cfg
+tools/openocd-cx32/bin/openocd -f configs/bringup-full-reset.cfg
 python3 bin/uart_radio.py --log logs/v0.3.1/still-v030 version
 ```
 
@@ -139,27 +177,31 @@ Local evidence, deliberately excluded from GitHub:
 - `logs/v0.3.1/before-version.*`, `before-status.*`, `still-v030`, `after-solder-version.json`.
 - `logs/factory-analysis/` archived binary/disassembly; never published/executed.
 
-## Pending physical procedure
+## Executed physical procedure
 
-After soldering restores SWD, reverify target identity, Flash layout and the
-v0.3.0 recovery image. Review the new image whitelist/vector layout again,
-then perform one guarded program/verify/readback attempt using the previously
-audited CX32L003 procedure. Compare readback with the binary before resetting.
-Do not erase blindly or run the mixed factory archive.
+After SWD restoration, the target identity, Flash layout, preserved v0.3.0
+image and new image were verified. The guarded script verified the full old
+Flash readback, executed `flash write_image erase firmware/build/uartctrl/controller.bin 0 bin`,
+verified the new binary, dumped exactly 7,664 bytes, and reran the identity guard
+while halted. Host comparison matched before the documented full-MCU reset.
+The archived factory firmware was not executed.
 
-After verified boot, run the existing UART regression test and binary PING,
-then run the XOSC diagnostic once:
+The regression utility was started with `--wait-boot --timeout 40` before
+reset to capture BOOT, then ran the regression suite. The following physical
+commands completed successfully (the first line includes the boot-capture flags):
 
 ```sh
-python3 bin/uart_radio.py --log logs/v0.3.1/physical-regression.json self-test
+python3 bin/uart_radio.py --wait-boot --timeout 40 --log logs/v0.3.1/physical-regression.json self-test
 python3 bin/uart_radio.py --log logs/v0.3.1/physical-ping.json ping
 python3 bin/uart_radio.py --log logs/v0.3.1/physical-rf-switch.json rf_switch
 python3 bin/uart_radio.py --log logs/v0.3.1/physical-xosc.json xosc
 ```
 
-These commands are **pending, not executed on v0.3.1**. Success requires real
-reply status OK, flags 0x00FF, mode bits RC/XOSC/RC, zero errors at all three
-steps, preserved configuration, and unchanged RF GPIO configuration/latches.
-If it fails, preserve the first response and investigate without repeatedly
-resetting or driving unknown RF-control pins. Even success would establish
-oscillator mode entry only, not RF performance or Meshtastic interoperability.
+All commands above were executed on v0.3.1. The XOSC utility issued exactly one
+TEST_XOSC request and validated all reply fields plus before/after snapshots.
+No retry was necessary. Physical logs are retained locally as
+`logs/v0.3.1/physical-{regression,ping,rf-switch,xosc}.{json,log}`;
+`preflight-restored.log`, `program.log`, `program-readback.bin`,
+`before-full-flash.bin` and `first-boot-reset.log` preserve programming evidence.
+They remain excluded from GitHub. No physical stack watermark or RF test was
+performed; the measured mode transition does not establish RF performance.
