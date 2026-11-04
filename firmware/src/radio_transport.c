@@ -35,6 +35,24 @@ static bool safe_command(bool read, const uint8_t *cmd, uint16_t count, uint16_t
             (cmd[0] == 0x11 && count == 2 && cmd[1] == 0 && size == 1) ||
             (cmd[0] == 0x1d && count == 4 && cmd[3] == 0 && size > 0 && size <= 4);
     }
+#ifdef UART_RADIO_PROTOCOL
+    /* Non-RF configuration only. A second band guard protects the HAL boundary.
+     * PA, RX/TX/FS, image calibration, DIO2 and DIO3 remain blocked. */
+    if (size == 0 && cmd[0] == 0x86 && count == 5) {
+        uint32_t word = (uint32_t)cmd[1]<<24 | (uint32_t)cmd[2]<<16 |
+                        (uint32_t)cmd[3]<<8 | cmd[4];
+        return word >= 454033408u && word <= 455081984u; /* 433..434 MHz, 32 MHz reference */
+    }
+    if (size == 0 && cmd[0] == 0x8b && count == 5)
+        return cmd[1]>=5 && cmd[1]<=12 && (cmd[2]<=6 || cmd[2]==8 || cmd[2]==9 || cmd[2]==10) &&
+               cmd[3]>=1 && cmd[3]<=4 && cmd[4]<=1;
+    if (size == 0 && cmd[0] == 0x8c && count == 7)
+        return cmd[3]<=1 && cmd[4]>0 && cmd[5]<=1 && cmd[6]<=1;
+    if (cmd[0] == 0x0d && count == 3)
+        return (cmd[1]==7 && cmd[2]==0x40 && size==2) ||
+               (cmd[1]==7 && cmd[2]==0x36 && size==1) ||
+               (cmd[1]==8 && cmd[2]==0x89 && size==1);
+#endif
     return size == 0 && count == 2 &&
         ((cmd[0] == 0x80 && cmd[1] == 0) || (cmd[0] == 0x8a && cmd[1] <= 1));
 }

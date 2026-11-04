@@ -9,7 +9,7 @@ SDK, Keil, IAR, OpenOCD or connected hardware are required to build firmware.
 sudo apt-get install --no-install-recommends \
   gcc-arm-none-eabi binutils-arm-none-eabi build-essential git python3
 python3 firmware/tools/prepare_deps.py
-make -C firmware -j2 radio-check uart-check check
+make -C firmware -j2 protocol-check radio-check uart-check check
 ```
 
 Dependency preparation needs network access on a fresh checkout. Subsequent
@@ -23,19 +23,22 @@ The ignored dependency checkouts are not submodules of this repository.
 
 | Target | Output | Status |
 | --- | --- | --- |
+| `make -C firmware uartctrl` | `firmware/build/uartctrl/controller.{elf,bin,hex,map}` | Binary UART controller v0.3.0; physical non-RF configuration/readbacks and recovery tests pass |
 | `make -C firmware radiodiag` | `firmware/build/radiodiag/controller.{elf,bin,hex,map}` | v0.2.1, flashed/readback verified; UART and non-RF SPI diagnostics physically pass |
 | `make -C firmware uartdiag` | `firmware/build/uartdiag/controller.{elf,bin,hex,map}` | UART diagnostic v0.1.1, physically tested at 115200 8N1 |
 | `make -C firmware all` | `firmware/build/controller.{elf,bin,hex,map}` | Experimental UART/SX1262 foundation; UART 9600 8N1, SPI mode 0 at 500 kHz; not flashed |
 | `make -C firmware check` | Also `firmware/build/driver-check.elf` | Retains all baseline `sx126x.c` functions to validate linkage and size; not a deployment image |
 
-The default Makefile target builds the experimental foundation. Use `uartdiag`
-explicitly for the image that was tested on hardware. No build target programs,
+The default Makefile target builds the experimental foundation. Use `uartctrl`
+explicitly for the binary controller; `radiodiag` and `uartdiag` preserve the
+physically tested text recovery images. No build target programs,
 erases, resets, or otherwise accesses a device.
 
 Observed sizes with the toolchain above:
 
 | Image | Flash | Static SRAM | Reserved stack |
 | --- | ---: | ---: | ---: |
+| Binary UART controller | 6,888 B | 988 B | 1,024 B |
 | Radio diagnostic | 5,100 B | 340 B | 1,024 B |
 | UART diagnostic | 1,712 B | 60 B | 1,024 B |
 | Experimental foundation | 1,596 B | 8 B | 1,024 B |
@@ -48,6 +51,15 @@ at `0x20000000`. Link assertions prevent static-data/stack overlap and Flash
 overflow. No option-byte, calibration, UID or ISP region is emitted.
 
 ## Tests
+
+`protocol-check` validates the binary controller, runs C framing/configuration
+and failure/recovery tests with the real pinned Semtech command encoder and a
+mock radio platform, then runs six Python codec/cross-language/cleanup tests.
+No USB access occurs. The separate physical utility `bin/uart_radio.py` opens
+the CH340 and performs real non-RF tests; see the [protocol specification](UART_PROTOCOL.md)
+and [build/physical results](uart-protocol-results.md). The binary controller
+uses an RX interrupt/ring; preserved text recovery images retain their original
+polling UART implementation.
 
 `radio-check` validates the new image and tests the real pinned Semtech command
 encoder through a mocked platform: golden frames, packet-type readback and

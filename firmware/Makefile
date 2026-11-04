@@ -88,3 +88,28 @@ radio-check: radiodiag
 	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -DRADIO_DIAGNOSTICS -Iinclude -I$(VENDOR)/sx126x_driver/src tests/test_radio_diag.c src/radio_transport.c src/radio_diag.c src/diagnostic_protocol.c $(VENDOR)/sx126x_driver/src/sx126x.c -o build/radiodiag/test_radio
 	./build/radiodiag/test_radio
 -include $(RADIO_OBJECTS:.o=.d)
+
+# Versioned binary UART controller. Recovery/legacy targets remain separate.
+CONTROL_OBJECTS := $(addprefix build/uartctrl/,startup.o uart_system.o uart_control.o radio_protocol.o radio_control.o radio_io.o radio_transport.o memory.o) build/sx126x.o
+.PHONY: uartctrl protocol-check
+build/uartctrl:
+	mkdir -p $@
+build/uartctrl/%.o: src/%.c | build/uartctrl
+	$(CC) $(CFLAGS) -DUART_RADIO_PROTOCOL -c $< -o $@
+build/uartctrl/startup.o: src/startup.S | build/uartctrl
+	$(CC) $(ARCH) -g3 -c $< -o $@
+build/uartctrl/controller.elf: $(CONTROL_OBJECTS) cx32l003f8.ld
+	$(CC) $(LDFLAGS) -Wl,-Map=build/uartctrl/controller.map $(CONTROL_OBJECTS) -lgcc -o $@
+	$(SIZE) $@
+build/uartctrl/controller.bin: build/uartctrl/controller.elf
+	$(OBJCOPY) -O binary $< $@
+build/uartctrl/controller.hex: build/uartctrl/controller.elf
+	$(OBJCOPY) -O ihex $< $@
+uartctrl: build/uartctrl/controller.bin build/uartctrl/controller.hex
+protocol-check: uartctrl
+	python3 tools/verify_sources.py
+	CROSS_COMPILE="$(CROSS_COMPILE)" python3 tests/check_image.py build/uartctrl/controller
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -DUART_RADIO_PROTOCOL -Iinclude -I$(VENDOR)/sx126x_driver/src tests/test_radio_protocol.c src/radio_protocol.c src/radio_control.c src/radio_transport.c $(VENDOR)/sx126x_driver/src/sx126x.c -o build/uartctrl/test_protocol
+	./build/uartctrl/test_protocol
+	python3 tests/test_uart_radio.py
+-include $(CONTROL_OBJECTS:.o=.d)
