@@ -3,13 +3,14 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* User-supplied DX-LR32 map; AF selections checked against datasheet table 4. */
+/* DX-LR32 map; AFs checked against datasheet table 4.
+ * RESET/BUSY corrected using surviving factory code and real SPI readback. */
 #define RADIO_NSS_PIN 2u       /* PA2: GPIO, active low */
 #define RADIO_SCK_PIN 1u       /* PA1: AF3 */
 #define RADIO_MOSI_PIN 3u      /* PD3: AF3 */
 #define RADIO_MISO_PIN 2u      /* PD2: AF3 */
-#define RADIO_RESET_PIN 5u     /* PB5: GPIO, active low */
-#define RADIO_BUSY_PIN 4u      /* PB4: GPIO input */
+#define RADIO_RESET_PIN 4u     /* PB4: GPIO, active low; factory table 0x7e6c */
+#define RADIO_BUSY_PIN 5u      /* PB5: GPIO input; factory table 0x7e7c */
 #define RADIO_DIO1_PIN 4u      /* PD4: GPIO input */
 #define UART_TX_PIN 5u         /* PD5: AF7 UART0_TX */
 #define UART_RX_PIN 6u         /* PD6: AF7 UART0_RX */

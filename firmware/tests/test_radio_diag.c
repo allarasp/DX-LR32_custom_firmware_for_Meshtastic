@@ -45,7 +45,7 @@ int main(void) {
     assert(strstr(radio_diag_init(),"RADIO_INIT OK"));
     assert(!selected && !reset_low);
     assert(strstr(send("PING\n"),"PONG"));
-    assert(strstr(send("VERSION\n"),"RADIODIAG 0.2.0"));
+    assert(strstr(send("VERSION\n"),"RADIODIAG 0.2.1"));
     assert(strstr(send("STATUS\n"),"READY_RC"));
     assert(strstr(send("RADIO_STATUS\n"),"tx=C000 rx=0024"));
     assert(strstr(send("RADIO_ERRORS\n"),"tx=17000000 rx=00240000"));

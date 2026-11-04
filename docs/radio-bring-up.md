@@ -1,5 +1,9 @@
 # SX1262 non-transmitting bring-up — 2026-11-03
 
+> Historical v0.2.0 failure record. **Resolved in v0.2.1:** RESET is PB4 and
+> BUSY is PB5; the original mapping was reversed. Physical SPI/UART tests now
+> pass. See [factory-code comparison and correction](factory-pin-correction.md).
+
 ## Actual hardware result
 
 The previous UART-only v0.1.1 survived a user-confirmed full removal of target

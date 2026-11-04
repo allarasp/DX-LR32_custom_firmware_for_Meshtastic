@@ -23,7 +23,7 @@ The ignored dependency checkouts are not submodules of this repository.
 
 | Target | Output | Status |
 | --- | --- | --- |
-| `make -C firmware radiodiag` | `firmware/build/radiodiag/controller.{elf,bin,hex,map}` | v0.2.0, flashed/readback verified; UART works, radio BUSY timeout under investigation |
+| `make -C firmware radiodiag` | `firmware/build/radiodiag/controller.{elf,bin,hex,map}` | v0.2.1, flashed/readback verified; UART and non-RF SPI diagnostics physically pass |
 | `make -C firmware uartdiag` | `firmware/build/uartdiag/controller.{elf,bin,hex,map}` | UART diagnostic v0.1.1, physically tested at 115200 8N1 |
 | `make -C firmware all` | `firmware/build/controller.{elf,bin,hex,map}` | Experimental UART/SX1262 foundation; UART 9600 8N1, SPI mode 0 at 500 kHz; not flashed |
 | `make -C firmware check` | Also `firmware/build/driver-check.elf` | Retains all baseline `sx126x.c` functions to validate linkage and size; not a deployment image |
@@ -38,8 +38,8 @@ Observed sizes with the toolchain above:
 | --- | ---: | ---: | ---: |
 | Radio diagnostic | 5,100 B | 340 B | 1,024 B |
 | UART diagnostic | 1,712 B | 60 B | 1,024 B |
-| Experimental foundation | 1,592 B | 8 B | 1,024 B |
-| Full baseline driver link check | 6,364 B | 176 B | 1,024 B |
+| Experimental foundation | 1,596 B | 8 B | 1,024 B |
+| Full baseline driver link check | 6,368 B | 176 B | 1,024 B |
 
 The linker's RAM-span report shows 100% because the stack is placed at the top
 of RAM. Static usage is `.data + .bss`, excluding the 1 KB `.stack` section.
@@ -52,7 +52,7 @@ overflow. No option-byte, calibration, UID or ISP region is emitted.
 `radio-check` validates the new image and tests the real pinned Semtech command
 encoder through a mocked platform: golden frames, packet-type readback and
 restoration, invalid responses, BUSY/tick deadlines, SPI failure cleanup and
-RF-command rejection. Physical results are separate in [radio bring-up](radio-bring-up.md).
+RF-command rejection. Physical results and the corrected RESET/BUSY mapping are in [factory-code comparison](factory-pin-correction.md).
 
 `uart-check` verifies source hashes and the ELF/binary layout, then runs the
 host UART command-parser tests. `check` verifies the experimental image,

@@ -37,8 +37,9 @@ void radio_io_init(void) {
     pin(GPIOA, RADIO_SCK_PIN, 3, true);
     pin(GPIOD, RADIO_MOSI_PIN, 3, true);
     pin(GPIOD, RADIO_MISO_PIN, 3, false);
-    pin(GPIOB, RADIO_RESET_PIN, 0, true);
+    /* Release BUSY before enabling reset output (corrected factory mapping). */
     pin(GPIOB, RADIO_BUSY_PIN, 0, false);
+    pin(GPIOB, RADIO_RESET_PIN, 0, true);
     pin(GPIOD, RADIO_DIO1_PIN, 0, false);
     SPI->CR = 0;
     SPI->SSN = SPI_SSN_SSN_Msk;

@@ -22,7 +22,7 @@ const char *diag_line_feed(struct diagnostic_line *line, uint8_t byte) {
         if (equal(line->text, "PING")) { return "PONG\r\n"; }
         if (equal(line->text, "VERSION")) {
 #ifdef RADIO_DIAGNOSTICS
-            return "DXLR32 RADIODIAG 0.2.0\r\n";
+            return "DXLR32 RADIODIAG 0.2.1\r\n";
 #else
             return "DXLR32 UARTDIAG 0.1.1\r\n";
 #endif

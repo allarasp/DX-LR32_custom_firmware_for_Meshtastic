@@ -55,7 +55,7 @@ try:
             failures.append(boot)
             if not args.diagnose: raise AssertionError(boot)
     for command, expected in [
-        ('PING','PONG'), ('VERSION','DXLR32 RADIODIAG 0.2.0'),
+        ('PING','PONG'), ('VERSION','DXLR32 RADIODIAG 0.2.1'),
         ('STATUS','STATUS CLK=22120000 BAUD=115200 RADIO=READY_RC'),
         ('RADIO_STATUS','RADIO_STATUS OK '), ('RADIO_ERRORS','RADIO_ERRORS OK '),
         ('RADIO_TEST','RADIO_TEST OK '), ('RADIO_RESET','RADIO_RESET OK '),
