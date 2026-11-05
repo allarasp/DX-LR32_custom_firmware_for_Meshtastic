@@ -7,8 +7,11 @@
 #include "rf_switch.h"
 #include "sx126x.h"
 #include "sx126x_hal.h"
+#ifdef UART_RADIO_LIVE
+#include "radio_phy.h"
+#endif
 
-static uint8_t registers[0x900],frame_bytes[16],packet_type,raw=0x22;
+static uint8_t registers[0xa00],frame_bytes[16],packet_type,raw=0x22;
 static unsigned frame_size,transfers,calls;
 static bool selected,reset_low,busy,spi_fault,timer_fault,corrupt_sync;
 static uint32_t now;
@@ -205,6 +208,20 @@ int main(int argc,char **argv) {
     frequency(862999999,RP_UNSUPPORTED);frequency(870000001,RP_UNSUPPORTED);
     frequency(800000000,RP_UNSUPPORTED);frequency(915000000,RP_UNSUPPORTED);
     frequency(433875000,RP_OK);assert(command(RP_APPLY,NULL,0)==RP_OK);
+#endif
+#ifdef UART_RADIO_LIVE
+    uint8_t gfsk[PHY_GFSK_WIRE_SIZE],select=1;
+    phy_encode(gfsk,&phy_pending);
+    assert(command(RP_SET_GFSK,gfsk,sizeof(gfsk))==RP_OK);
+    assert(command(RP_APPLY,NULL,0)==RP_OK&&packet_type==0&&phy_active_type==0);
+    assert(command(RP_GET_GFSK,&select,1)==RP_OK&&decoded[7+3]==0&&memcmp(decoded+7+4,gfsk,sizeof(gfsk))==0);
+    assert(command(RP_GET_CONFIG,NULL,0)==RP_OK&&rp_u16(decoded+7+43)==PHY_GFSK_MASK);
+    assert(command(RP_GET_READBACK,NULL,0)==RP_UNSUPPORTED);
+    gfsk[28]=255;assert(command(RP_SET_GFSK,gfsk,sizeof(gfsk))==RP_RANGE);
+    phy_encode(gfsk,&phy_pending);gfsk[0]=gfsk[1]=gfsk[2]=gfsk[3]=0;
+    assert(command(RP_SET_GFSK,gfsk,sizeof(gfsk))==RP_RANGE);
+    select=2;assert(command(RP_SET_PACKET_TYPE,&select,1)==RP_RANGE);
+    lora(11,250000,5,0,RP_OK);assert(command(RP_APPLY,NULL,0)==RP_OK&&packet_type==1&&phy_active_type==1);
 #endif
     puts("Binary protocol/config tests passed: CRC, escaping, limits, deadlines/wrap, recovery, staging, readback failures and RF rejection");
 }

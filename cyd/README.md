@@ -9,7 +9,7 @@ custom DIY variant, not an officially supported Meshtastic product.
 The full upstream Meshtastic stack supplies channel configuration, encryption,
 node database, USB PhoneAPI, Bluetooth and the built-in screen/menu UI. A custom
 `RadioInterface` replaces direct radio SPI with our version-1 binary UART link
-to DX-LR32 meshctrl v0.4.0, v0.5.x or v0.6.0. The updated source accepts these versions; the previously uploaded CYD image has not been replaced during the v0.5.0 CX32 work. It does not put a second Meshtastic stack on the CX32.
+to DX-LR32 meshctrl v0.4.0, v0.5.x, v0.6.0 or v0.7.0. The updated source accepts these versions; the previously uploaded CYD image has not been replaced during the v0.5.0 CX32 work. It does not put a second Meshtastic stack on the CX32.
 The WSL bridge is not required while the CYD is the radio host.
 
 **Default is EU_433, LongFast, public channel and radio TX disabled.** There is
@@ -94,9 +94,9 @@ is bypassed. I2C is disabled so it cannot claim the external UART RX pin.
   timeout causes an automatic retransmission of an uncertain packet.
 - TX remains gated by `config.lora.tx_enabled`; board defaults set it false.
   The build-time bootstrap forces TX off on each boot; any later enabling
-  should be a deliberate test-session action. The MCU also limits power to -9 dBm and accepts only the initial LongFast TX
-  profile and <=2 s airtime. The normal Meshtastic power slider therefore does
-  not override the MCU's low-power experimental limit.
+  should be a deliberate test-session action. The adapter currently requests -9 dBm for the first wired tests. The MCU
+  itself accepts -9..+22 dBm and configurable modem settings, with <=2 s airtime;
+  the current adapter does not yet forward the normal power-slider value.
 - No full CAD/CSMA implementation, deep sleep integration, multi-packet radio
   queue, complete receiver-loss accounting or sustained RF-switch qualification.
   Some routed/admin/PKI packets may be rejected by airtime/cooldown limits.
@@ -137,3 +137,13 @@ Menu selects the native context/menu action; Prev/Next use native navigation.
 The ordinary upstream page contents are still mostly monochrome, with colored
 navigation controls. This is not a claim to have ported the separate modern
 LVGL/device-ui application to this non-PSRAM ESP32.
+
+## Controller v0.7.0 preparation
+
+The updated source accepts v0.7.0 and was built successfully. The new app is
+1,317,552 B, SHA-256
+`42a9dc11131b0a9f07230e8e8b2bf39380c855d4e00910de2ac6981c80a082b9`.
+It was not uploaded in this stage. Update the CYD before replacing the CH340
+with UART2 wiring. MCU CAD/sleep/GFSK support does not automatically integrate
+those features into this LoRa Meshtastic adapter.
+See [ESP32 steps and delivery-status limits](../docs/ESP32_INTEGRATION.md).

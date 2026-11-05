@@ -8,16 +8,22 @@ The goal of the Meshtastic integration is to build a standalone Meshtastic messa
 
 > **Development status — a two-way public-channel text exchange with a phone-connected 433 MHz LilyGO TTGO is verified.** The WSL bridge and meshctrl v0.4.0 exchanged real EU_433 LongFast messages. This establishes the tested text/profile path, not complete Meshtastic routing or feature compatibility. The CYD radio adapter still needs a wired test. See [peer-test evidence](docs/meshtastic-peer-test.md).
 
-**Current firmware: v0.6.0**, programmed and readback-verified. The same UART
-frequency command selects **433–434 MHz or 863–870 MHz** directly, without a
-separate mode/enable flag. TX uses UART-selected modem/packet settings and power
-(-9..+22 dBm commanded); regional policy belongs to the host. Recovery,
-duplicate-TX protection, packet/error counters and asynchronous UART output are
-retained. Size: **12,920 B Flash, 2,392 B static RAM + 1 KB stack**. See
-[v0.6.0 dual-band results and usage](docs/v0.6.0-results.md) and the
-[UART contract](docs/UART_LIVE.md). Earlier v0.5.x peer exchanges passed; those
-results do not establish measured 868 MHz RF performance or complete Meshtastic
-router compatibility.
+**Current firmware: v0.7.0**, programmed, readback-verified and power-cycle
+verified. It supports UART-configurable LoRa and GFSK, **433–434 MHz or
+863–870 MHz**, -9..+22 dBm commanded power, instantaneous RSSI, hardware
+statistics, RX gain, CAD, radio sleep/wake and duty-cycled reception. No band
+mode/enable flag is needed; regulatory power/channel policy belongs to the host.
+
+The physical feature suite passed. A short GFSK transmission completed; a new
+LoRa round trip with Alr1 passed, and duty RX received `Alr1 duty070` through
+DIO1-driven servicing. GFSK peer interoperability and 868 MHz RF performance
+still need measurement. Size: **20,212 B Flash, 2,496 B static RAM + 1 KB stack**;
+observed stack use was 680 B in the recorded workload. See
+[v0.7.0 results](docs/v0.7.0-results.md), [new UART commands](docs/UART_FEATURES.md),
+[raw radio contract](docs/UART_LIVE.md) and [ESP32 integration](docs/ESP32_INTEGRATION.md).
+The updated CYD application has been built but must still be uploaded before
+wiring/testing its radio adapter. This is not a claim of full Meshtastic
+routing/ACK/PKI interoperability.
 
 **The preserved v0.3.1 recovery image was programmed, readback-verified and physically tested.** Its bounded
 crystal diagnostic reported standby RC → XOSC → RC (`0x22 → 0x32 → 0x22`),

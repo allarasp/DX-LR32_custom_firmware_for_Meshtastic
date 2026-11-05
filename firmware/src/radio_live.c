@@ -3,6 +3,8 @@
 #include "rf_switch.h"
 #include "sx126x.h"
 #include "sx126x_hal.h"
+#include "radio_phy.h"
+#include "sx126x_regs.h"
 static live_emit_fn emit;
 static uint8_t event_buffer[270];
 static unsigned mode;
@@ -11,15 +13,26 @@ static bool have_tx;
 static uint16_t previous_seq,previous_crc,previous_len;
 static bool armed,rx_again,duty_active;
 static uint32_t arm_at,start,limit,next_tx,last_poll,rx_timeout;
-static uint16_t tx_seq,rx_seq;
+static uint16_t tx_seq,rx_seq,cad_seq;
+static bool boosted,rx_duty;
+static uint32_t duty_window,duty_sleep,duty_started,duty_duration;
+static bool gain(void) {
+ uint8_t value=0;
+ return sx126x_cfg_rx_boosted(0,boosted)==SX126X_STATUS_OK&&
+  sx126x_read_register(0,SX126X_REG_RXGAIN,&value,1)==SX126X_STATUS_OK&&value==(boosted?0x96:0x94);
+}
 static bool ok(sx126x_status_t s) {return s==SX126X_STATUS_OK;}
 static bool clear_irq(void) {return ok(sx126x_clear_irq_status(0,0x03ff));}
 static bool packet_limit(uint8_t length) {
+ if(phy_active_type==0)return phy_packet_limit(length);
  sx126x_pkt_params_lora_t p={rc_active.preamble,(sx126x_lora_pkt_len_modes_t)rc_active.header,length,rc_active.crc!=0,rc_active.iq!=0};
  return ok(sx126x_set_lora_pkt_params(0,&p));
 }
 static bool stop(void) {
- bool a=ok(sx126x_set_standby(0,SX126X_STANDBY_CFG_RC));
+ bool waking=mode==1||mode==5;
+ bool a=(!waking||ok(sx126x_wakeup(0)))&&ok(sx126x_set_standby(0,SX126X_STANDBY_CFG_RC));
+ if(a&&rc_active_valid&&phy_active_type==1&&(mode==3||mode==5)&&(rx_timeout||rx_duty))a=ok(sx126x_handle_rx_done(0));
+ rx_duty=false;
  if(!a) {(void)sx126x_reset(0);rc_invalidate();}
  bool b=live_pads(0);mode=b?0:255;
  if(!a||!b) {++stats[7];armed=false;rc_invalidate();}return a&&b;
@@ -33,14 +46,14 @@ static bool prepare(void) {
  uint8_t cal_high=lower==RC_BAND868_MIN?0xdb:0x6f;
  return ok(sx126x_set_standby(0,SX126X_STANDBY_CFG_RC)) &&
  ok(sx126x_cal_img(0,cal_low,cal_high)) && ok(sx126x_set_rx_tx_fallback_mode(0,SX126X_FALLBACK_STDBY_RC)) &&
- ok(sx126x_set_buffer_base_address(0,0,0)) && ok(sx126x_set_dio_irq_params(0,0x03ff,0x0203,0,0)) && clear_irq();
+ gain() && ok(sx126x_set_buffer_base_address(0,0,0)) && ok(sx126x_set_dio_irq_params(0,0x03ff,0x0203,0,0)) && clear_irq();
 }
 static bool receive(void) {
  if(!live_pads(1)||!packet_limit(rc_active.payload)||!clear_irq())return false;
- bool a=rx_timeout?ok(sx126x_set_rx(0,rx_timeout)):ok(sx126x_set_rx_with_timeout_in_rtc_step(0,SX126X_RX_CONTINUOUS));
- if(a) {mode=3;start=radio_io_millis();}return a;
+ bool a=rx_duty?ok(sx126x_set_rx_duty_cycle(0,duty_window,duty_sleep)):rx_timeout?ok(sx126x_set_rx(0,rx_timeout)):ok(sx126x_set_rx_with_timeout_in_rtc_step(0,SX126X_RX_CONTINUOUS));
+ if(a) {mode=rx_duty?5:3;start=radio_io_millis();}return a;
 }
-void live_init(live_emit_fn fn) {emit=fn;mode=0;armed=rx_again=duty_active=false;rx_seq=0;last_poll=rx_timeout=0;have_tx=false;
+void live_init(live_emit_fn fn) {emit=fn;mode=0;armed=rx_again=duty_active=false;rx_seq=0;last_poll=rx_timeout=0;have_tx=false;boosted=rx_duty=false;
  for(unsigned i=0;i<9;++i)stats[i]=0;
  if(!live_pads(0)) {mode=255;++stats[7];rc_invalidate();}}
 static void complete(uint8_t status) {
@@ -52,12 +65,29 @@ static void complete(uint8_t status) {
  if(status!=RP_OK) {++stats[6];error(RP_SEND);}else ++stats[5];
  if(status==RP_OK && again && rc_active_valid && !receive()) {(void)stop();error(RP_START_RX);}
 }
+static void cad_complete(uint8_t result,sx126x_irq_mask_t irq) {
+ uint32_t elapsed=radio_io_millis()-start;
+ if(!stop())result=RP_RADIO_ERROR;
+ uint8_t p[10]={result,(irq&SX126X_IRQ_CAD_DETECTED)?1:0};rp_put32(p+2,elapsed);rp_put32(p+6,rc_generation);
+ emit(0x85,cad_seq,p,10);
+ if(result!=RP_OK&&result!=RP_DISABLED)error(RP_START_CAD);
+}
 void live_poll(void) {
  uint32_t now=radio_io_millis();
  if(armed && (uint32_t)(now-arm_at)>30000)armed=false;
- if(!mode || mode==255 || (uint32_t)(now-last_poll)<3)return;
+ if(!mode || mode==1 || mode==255 || (uint32_t)(now-last_poll)<3)return;
+ if(mode==5) {
+  if((uint32_t)(now-duty_started)>=duty_duration) {++stats[3];(void)stop();uint8_t p[1]={RP_TIMEOUT};emit(0x84,0,p,1);return;}
+  /* SPI during a duty-RX sleep interval would wake and terminate sniffing. */
+  if(!radio_io_dio1())return;
+ }
  last_poll=now;sx126x_irq_mask_t irq=0;
- if(!ok(sx126x_get_irq_status(0,&irq))) {if(mode==3)++stats[2];if(mode==4)complete(RP_RADIO_ERROR);else {(void)stop();error(RP_START_RX);}return;}
+ if(!ok(sx126x_get_irq_status(0,&irq))) {if(mode==3||mode==5)++stats[2];if(mode==4)complete(RP_RADIO_ERROR);else if(mode==2)cad_complete(RP_RADIO_ERROR,0);else {(void)stop();error(RP_START_RX);}return;}
+ if(mode==2) {
+  if(irq&SX126X_IRQ_CAD_DONE)cad_complete(RP_OK,irq);
+  else if((uint32_t)(now-start)>limit)cad_complete(RP_TIMEOUT,irq);
+  return;
+ }
  if(mode==4) {
   if(irq&SX126X_IRQ_TX_DONE)complete(RP_OK);
   else if((irq&SX126X_IRQ_TIMEOUT) || (uint32_t)(now-start)>limit+200)complete(RP_RADIO_ERROR);
@@ -68,16 +98,23 @@ void live_poll(void) {
   bool rejected=!valid;
   sx126x_rx_buffer_status_t b={0};uint8_t raw[3];const uint8_t command[2]={0x14,0};
   if(!ok(sx126x_set_standby(0,SX126X_STANDBY_CFG_RC)))valid=false;
+  if(phy_active_type==1&&(rx_timeout||rx_duty)&&!ok(sx126x_handle_rx_done(0)))valid=false;
   if(valid)valid=ok(sx126x_get_rx_buffer_status(0,&b)) && b.pld_len_in_bytes>0 &&
    sx126x_hal_read(0,command,2,raw,3)==SX126X_HAL_STATUS_OK &&
    ok(sx126x_read_buffer(0,b.buffer_start_pointer,event_buffer+15,b.pld_len_in_bytes));
+  if(valid&&phy_active_type==0&&(raw[0]&0x3c)) {valid=false;rejected=true;}
   if(valid) {
    rp_put32(event_buffer,rc_generation);rp_put32(event_buffer+4,now);
-   rp_put16(event_buffer+8,(uint16_t)(int16_t)(-2*(int)raw[0]));event_buffer[10]=raw[1];
-   rp_put16(event_buffer+11,irq);event_buffer[13]=rc_active.crc?15:14;event_buffer[14]=b.pld_len_in_bytes;
+   if(phy_active_type==1) {
+    rp_put16(event_buffer+8,(uint16_t)(int16_t)(-2*(int)raw[0]));event_buffer[10]=raw[1];
+    rp_put16(event_buffer+11,irq);event_buffer[13]=rc_active.crc?15:14;
+   }else {
+    rp_put16(event_buffer+8,(uint16_t)(int16_t)(-2*(int)raw[2]));rp_put16(event_buffer+10,(uint16_t)(int16_t)(-2*(int)raw[1]));
+    event_buffer[12]=raw[0];event_buffer[13]=phy_active.crc==SX126X_GFSK_CRC_OFF?14:15;
+   }event_buffer[14]=b.pld_len_in_bytes;
   }
   if(!receive()) {(void)stop();error(RP_START_RX);}
-  if(valid) {++stats[0];emit(0x81,++rx_seq,event_buffer,(uint16_t)(15+b.pld_len_in_bytes));}
+  if(valid) {++stats[0];emit(phy_active_type==1?0x81:0x86,++rx_seq,event_buffer,(uint16_t)(15+b.pld_len_in_bytes));}
   else if(rejected)++stats[1];
   else {++stats[2];error(RP_START_RX);}
   return;
@@ -91,6 +128,94 @@ void live_poll(void) {
 }
 uint16_t live_handle(uint8_t cmd,const uint8_t *p,uint16_t n,uint8_t *out,uint16_t seq) {
  out[0]=RP_OK;
+ if(mode==1&&(cmd==RP_APPLY||cmd==RP_RESET||cmd==RP_GET_ERRORS||cmd==RP_GET_READBACK||cmd==RP_TEST_XOSC||
+    cmd==RP_START_RX||cmd==RP_SEND||cmd==RP_GET_RSSI||cmd==RP_GET_PHY_STATS||cmd==RP_RESET_PHY_STATS||
+    cmd==RP_SET_RX_GAIN||cmd==RP_START_CAD||cmd==RP_START_DUTY_RX||cmd==RP_SLEEP))goto not_ready;
+ if(mode==5&&(cmd==RP_GET_ERRORS||cmd==RP_GET_READBACK||cmd==RP_TEST_XOSC||cmd==RP_GET_PHY_STATS||cmd==RP_RESET_PHY_STATS))goto not_ready;
+ if(cmd==RP_GET_EXT_STATUS) {
+  if(n)goto length;
+  out[1]=1;out[2]=(uint8_t)mode;out[3]=phy_pending_type;out[4]=phy_active_type;
+  out[5]=rc_active_valid;out[6]=boosted;out[7]=radio_io_busy();out[8]=radio_io_dio1();rp_put32(out+9,rc_generation);
+  uint32_t elapsed=radio_io_millis()-duty_started;
+  rp_put32(out+13,mode==5&&elapsed<duty_duration?duty_duration-elapsed:0);
+  uint32_t now=radio_io_millis();
+  rp_put32(out+17,duty_active&&(int32_t)(next_tx-now)>0?next_tx-now:0);
+  rp_put32(out+21,armed&&(uint32_t)(now-arm_at)<30000?30000-(now-arm_at):0);return 25;
+ }
+ if(cmd==RP_GET_RSSI) {
+  if(n)goto length;
+  if(mode!=3)goto not_ready;
+  const uint8_t c[2]={0x15,0};uint8_t raw=0;
+  if(sx126x_hal_read(0,c,2,&raw,1)!=SX126X_HAL_STATUS_OK)goto operation_error;
+  rp_put16(out+1,(uint16_t)(int16_t)(-2*(int)raw));out[3]=phy_active_type;rp_put32(out+4,rc_active.frequency);return 8;
+ }
+ if(cmd==RP_GET_PHY_STATS||cmd==RP_RESET_PHY_STATS) {
+  if(n)goto length;
+  if((mode!=0&&mode!=3)||!rc_active_valid)goto not_ready;
+  if(cmd==RP_RESET_PHY_STATS) {if(!ok(sx126x_reset_stats(0)))goto operation_error;return 1;}
+  out[1]=phy_active_type;
+  if(phy_active_type==1) {
+   sx126x_stats_lora_t counts;
+   if(!ok(sx126x_get_lora_stats(0,&counts)))goto operation_error;
+   rp_put16(out+2,counts.nb_pkt_received);rp_put16(out+4,counts.nb_pkt_crc_error);rp_put16(out+6,counts.nb_pkt_header_error);
+  }else {
+   sx126x_stats_gfsk_t counts;
+   if(!ok(sx126x_get_gfsk_stats(0,&counts)))goto operation_error;
+   rp_put16(out+2,counts.nb_pkt_received);rp_put16(out+4,counts.nb_pkt_crc_error);rp_put16(out+6,counts.nb_pkt_len_error);
+  }
+  return 8;
+ }
+ if(cmd==RP_SET_RX_GAIN) {
+  if(n!=1)goto length;
+  if(p[0]>1)goto range;
+  if(mode!=0)goto not_ready;
+  bool old=boosted;boosted=p[0]!=0;
+  if(!gain()) {boosted=old;rc_invalidate();goto operation_error;}
+  out[1]=boosted;out[2]=boosted?0x96:0x94;return 3;
+ }
+ if(cmd==RP_START_CAD) {
+  if(n!=7)goto length;
+  if(mode!=0||!rc_active_valid)goto not_ready;
+  if(phy_active_type!=1) {out[0]=RP_UNSUPPORTED;return 1;}
+  uint32_t timeout=rp_u32(p+3);
+  if(p[0]>4||!p[1]||!p[2]||p[2]>p[1]||timeout<10||timeout>30000)goto range;
+  uint32_t minimum=(uint32_t)(((uint64_t)(1u<<rc_active.sf)*1000*((1u<<p[0])+4)+rc_active.bandwidth-1)/rc_active.bandwidth)+20;
+  if(timeout<minimum) {out[0]=RP_COMBINATION;return 1;}
+  sx126x_cad_params_t c={(sx126x_cad_symbs_t)p[0],p[1],p[2],SX126X_CAD_ONLY,0};
+  armed=false;rx_again=false;
+  if(!prepare()||!live_pads(1)||!ok(sx126x_set_dio_irq_params(0,0x03ff,0x0180,0,0))||
+     !ok(sx126x_set_cad_params(0,&c))||!ok(sx126x_set_cad(0)))goto operation_error;
+  cad_seq=seq;start=radio_io_millis();limit=timeout;mode=2;return 1;
+ }
+ if(cmd==RP_SLEEP) {
+  if(n)goto length;
+  if(mode!=0)goto not_ready;
+  armed=false;rx_again=false;
+  if(!stop())goto operation_error;
+  mode=1;
+  if(!ok(sx126x_set_sleep(0,SX126X_SLEEP_CFG_COLD_START)))goto operation_error;
+  rc_invalidate();return 1;
+ }
+ if(cmd==RP_WAKE) {
+  if(n)goto length;
+  if(mode!=1)goto not_ready;
+  if(!stop())goto operation_error;
+  sx126x_chip_status_t state;sx126x_errors_mask_t errors=0xffff;
+  if(!ok(sx126x_get_status(0,&state))||state.chip_mode!=SX126X_CHIP_MODE_STBY_RC||
+     !ok(sx126x_get_device_errors(0,&errors))||errors)goto operation_error;
+  return 1;
+ }
+ if(cmd==RP_START_DUTY_RX) {
+  if(n!=12)goto length;
+  if(mode!=0||!rc_active_valid)goto not_ready;
+  uint32_t window=rp_u32(p),sleep=rp_u32(p+4),duration=rp_u32(p+8);
+  if(window<10||window>10000||sleep<10||sleep>10000||duration<window+sleep||duration>3600000)goto range;
+  armed=false;rx_again=true;rx_timeout=0;
+  if(!prepare()||!ok(sx126x_init_retention_list(0)))goto operation_error;
+  duty_window=window;duty_sleep=sleep;duty_started=radio_io_millis();duty_duration=duration;rx_duty=true;
+  if(!receive())goto operation_error;
+  return 1;
+ }
  if(cmd==RP_GET_VERSION) {if(n)goto length;out[1]=RP_FW_MAJOR;out[2]=RP_FW_MINOR;out[3]=RP_FW_PATCH;out[4]=RP_VERSION;return 5;}
  if(cmd==RP_GET_FREQUENCY_RANGES) {
   if(n)goto length;
@@ -105,28 +230,32 @@ uint16_t live_handle(uint8_t cmd,const uint8_t *p,uint16_t n,uint8_t *out,uint16
  }
  if(cmd==RP_ARM_TX) { /* ARM_TX: explicit one-shot token, expires in 30 seconds. */
   if(n!=4)goto length;
+  if(mode!=0&&mode!=3)goto not_ready;
   if(rp_u32(p)!=0x21315854u) {out[0]=RP_RANGE;return 1;}
   armed=true;arm_at=radio_io_millis();return 1;
  }
  if(cmd==RP_GET_STATUS) {
   if(n)goto length;
   sx126x_chip_status_t s;sx126x_errors_mask_t e=0xffff;
-  bool a=ok(sx126x_get_status(0,&s))&&ok(sx126x_get_device_errors(0,&e));
-  (void)rc_handle(RP_GET_CONFIG,0,0,out);uint8_t is_dirty=out[42];
+  bool quiet=mode==1||mode==5;
+  bool a=quiet||(ok(sx126x_get_status(0,&s))&&ok(sx126x_get_device_errors(0,&e)));
+  (void)rc_handle(RP_GET_CONFIG,0,0,out);uint8_t is_dirty=out[42];uint16_t applied=rp_u16(out+43),readback=rp_u16(out+45);
   for(unsigned i=0;i<28;++i)out[i]=0;
   out[0]=a?RP_OK:RP_RADIO_ERROR;out[1]=(uint8_t)mode;out[2]=a?radio_link.rx[1]:0xff;
   /* The HAL trace was overwritten by GetDeviceErrors; reconstruct status. */
-  if(a)out[2]=(uint8_t)(((unsigned)s.chip_mode<<4)|((unsigned)s.cmd_status<<1));
+  if(a&&!quiet)out[2]=(uint8_t)(((unsigned)s.chip_mode<<4)|((unsigned)s.cmd_status<<1));
+  if(quiet)out[2]=0xff;
   rp_put16(out+3,e);out[5]=rc_active_valid;out[6]=is_dirty;
-  rp_put16(out+7,rc_active_valid?15:0);rp_put16(out+9,rc_active_valid?15:0);rp_put32(out+11,rc_generation);
+  rp_put16(out+7,rc_active_valid?applied:0);rp_put16(out+9,rc_active_valid?readback:0);rp_put32(out+11,rc_generation);
   rp_put32(out+15,radio_io_millis());rp_put32(out+19,radio_link.busy_timeouts);rp_put32(out+23,radio_link.spi_failures);out[27]=(uint8_t)radio_link.error;return 28;
  }
  if(cmd==RP_GET_RF_SWITCH) {
   if(n)goto length;
   struct rf_switch_gpio g;rf_switch_read_gpio(&g);
-  bool valid=(mode==0||mode==3||mode==4)&&!(g.pulls&RF_SWITCH_PULLS)&&!(g.alternate&RF_SWITCH_AF)&&!(g.type&RF_SWITCH_PINS)&&
-   ((g.direction&24)==(mode?24u:0u))&&(!mode||((g.input&24)==(mode==4?16u:8u)&&(g.latch&24)==(mode==4?16u:8u)));
-  out[0]=valid?RP_OK:RP_READBACK;out[1]=valid?(mode==4?RF_SWITCH_TX:mode==3?RF_SWITCH_RX:RF_SWITCH_UNDRIVEN):RF_SWITCH_UNKNOWN;
+  bool driving=mode==2||mode==3||mode==4||mode==5;
+  bool valid=(mode<=5)&&!(g.pulls&RF_SWITCH_PULLS)&&!(g.alternate&RF_SWITCH_AF)&&!(g.type&RF_SWITCH_PINS)&&
+   ((g.direction&24)==(driving?24u:0u))&&(!driving||((g.input&24)==(mode==4?16u:8u)&&(g.latch&24)==(mode==4?16u:8u)));
+  out[0]=valid?RP_OK:RP_READBACK;out[1]=valid?(mode==4?RF_SWITCH_TX:driving?RF_SWITCH_RX:RF_SWITCH_UNDRIVEN):RF_SWITCH_UNKNOWN;
   out[2]=valid?0:RF_SWITCH_BAD_GPIO;out[3]=1;out[4]=g.direction&24;out[5]=g.type&24;
   rp_put16(out+6,g.pulls&RF_SWITCH_PULLS);rp_put32(out+8,g.alternate&RF_SWITCH_AF);out[12]=g.input&24;out[13]=g.latch&24;return 14;
  }
@@ -134,12 +263,13 @@ uint16_t live_handle(uint8_t cmd,const uint8_t *p,uint16_t n,uint8_t *out,uint16
   if(n!=4)goto length;
   if((mode!=0 && mode!=3) || !rc_active_valid)goto not_ready;
   uint32_t t=rp_u32(p);if(t>262143)goto range;
-  rx_timeout=t;rx_again=true;
+  rx_timeout=t;rx_again=true;rx_duty=false;
   if(!prepare()||!receive()) {out[0]=RP_RADIO_ERROR;(void)stop();}return 1;
  }
  if(cmd==RP_STOP_RX || (cmd==RP_SET_MODE && n==1 && p[0]==0)) {
   if(cmd==RP_STOP_RX && n)goto length;
   if(mode==4)goto not_ready;
+  if(mode==2) {cad_complete(RP_DISABLED,0);return 1;}
   rx_again=false;out[0]=stop()?RP_OK:RP_RADIO_ERROR;return 1;
  }
  if(cmd==RP_SEND) {
@@ -151,14 +281,14 @@ uint16_t live_handle(uint8_t cmd,const uint8_t *p,uint16_t n,uint8_t *out,uint16
   if((mode!=0 && mode!=3) || !rc_active_valid || (duty_active && (int32_t)(now-next_tx)<0))goto not_ready;
   sx126x_irq_mask_t irq=0;
   if(mode==3 && (!ok(sx126x_get_irq_status(0,&irq)) || (irq&0x001e)))goto not_ready;
-  if(rc_active.header && n!=rc_active.payload) {out[0]=RP_COMBINATION;return 1;}
+  if((phy_active_type==1&&rc_active.header&&n!=rc_active.payload)||(phy_active_type==0&&phy_active.header==0&&n!=phy_active.payload)) {out[0]=RP_COMBINATION;return 1;}
   int bw=rc_bandwidth_code(rc_active.bandwidth);
-  if(bw<0 || rc_active.power < -9 || rc_active.power>RC_POWER_MAX)goto range;
+  if((phy_active_type==1&&bw<0) || rc_active.power < -9 || rc_active.power>RC_POWER_MAX)goto range;
   const sx126x_mod_params_lora_t m={(sx126x_lora_sf_t)rc_active.sf,(sx126x_lora_bw_t)bw,
       (sx126x_lora_cr_t)(rc_active.cr-4),rc_active.ldro};
   const sx126x_pkt_params_lora_t pkt={rc_active.preamble,(sx126x_lora_pkt_len_modes_t)rc_active.header,n,rc_active.crc!=0,rc_active.iq!=0};
-  uint32_t airtime=sx126x_get_lora_time_on_air_in_ms(&pkt,&m);
-  if(airtime>2000)goto range;
+  uint32_t airtime=phy_active_type==0?phy_airtime((uint8_t)n):sx126x_get_lora_time_on_air_in_ms(&pkt,&m);
+  if(!airtime||airtime>2000)goto range;
   bool again=mode==3;armed=false;tx_seq=seq;rx_again=again;
   have_tx=true;previous_seq=seq;previous_crc=crc;previous_len=n;++stats[4];
   /* Charge a conservative full 3-second attempt before any RF command. */
@@ -178,4 +308,5 @@ length: out[0]=RP_LENGTH;return 1;
 range: out[0]=RP_RANGE;return 1;
 not_ready: out[0]=RP_NOT_READY;return 1;
 radio_error: ++stats[6];out[0]=RP_RADIO_ERROR;(void)stop();return 1;
+operation_error: out[0]=RP_RADIO_ERROR;(void)stop();return 1;
 }

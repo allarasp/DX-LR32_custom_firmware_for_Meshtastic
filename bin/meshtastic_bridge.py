@@ -1,19 +1,17 @@
 #!/usr/bin/env python3
 """Experimental public-channel endpoint; not a mesh router or PhoneAPI device."""
 import argparse
-from collections import deque
 import json
 import os
 from pathlib import Path
 import secrets
-import select
 import struct
 import time
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from google.protobuf.message import DecodeError
 from meshtastic import util
 from meshtastic.protobuf import mesh_pb2, portnums_pb2
-from uart_radio import Link, configure
+from uart_radio import EventLink as RadioLink, configure
 
 BROADCAST=0xffffffff
 HEADER=struct.Struct('<IIIBBBB')
@@ -82,31 +80,6 @@ class Identity:
         os.replace(temp,self.path)
         return self.value['node'],pid
 
-class RadioLink(Link):
-    def __init__(self,*args,**kwargs):
-        super().__init__(*args,**kwargs);self.radio_events=deque();self.dropped_events=0
-    def pump(self,timeout):
-        if not select.select([self.fd],[],[],timeout)[0]:return
-        data=os.read(self.fd,4096)
-        if not data:raise OSError('serial device disconnected')
-        for frame in self.decoder.feed(data):
-            if frame[0]!=1:continue
-            if frame[1]==2:
-                if len(self.radio_events)>=64:self.radio_events.popleft();self.dropped_events+=1
-                self.radio_events.append(frame)
-            else:self.pending.append(frame)
-    def receive(self,command,seq,timeout=2,kind=1):
-        deadline=time.monotonic()+timeout
-        while time.monotonic()<deadline:
-            for _ in range(len(self.pending)):
-                frame=self.pending.pop(0)
-                if frame[:4]==(1,kind,command,seq):return frame[4]
-                self.log('UNMATCHED',kind=frame[1],command=frame[2],seq=frame[3])
-            self.pump(min(.1,max(0,deadline-time.monotonic())))
-        raise TimeoutError(f'no reply command={command} sequence={seq}')
-    def event(self,timeout=.5):
-        if not self.radio_events:self.pump(timeout)
-        return self.radio_events.popleft() if self.radio_events else None
 
 def event_packet(frame,own_node,target_suffix=None):
     _,kind,event,seq,p=frame
@@ -119,8 +92,8 @@ def event_packet(frame,own_node,target_suffix=None):
 
 def setup(link,hz):
     version=link.request(1)
-    if tuple(version[1:4]) not in ((0,4,0),(0,5,0),(0,5,1),(0,6,0)):
-        raise RuntimeError('requires live controller v0.4.0, v0.5.x or v0.6.0; installed v0.3.1 cannot receive packets over UART')
+    if tuple(version[1:4]) not in ((0,4,0),(0,5,0),(0,5,1),(0,6,0),(0,7,0)):
+        raise RuntimeError('requires live controller v0.4.0, v0.5.x v0.6.0 or v0.7.0; installed v0.3.1 cannot receive packets over UART')
     caps=link.request(2)
     if struct.unpack_from('<I',caps,2)[0]&0x300!=0x300:raise RuntimeError('RX/TX capability missing')
     link.request(10)

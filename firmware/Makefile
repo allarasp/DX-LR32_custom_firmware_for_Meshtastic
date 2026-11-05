@@ -117,7 +117,7 @@ protocol-check: uartctrl
 -include $(CONTROL_OBJECTS:.o=.d)
 
 # Separate experimental live-radio image; never replaces uartctrl implicitly.
-LIVE_OBJECTS := $(addprefix build/meshctrl/,startup.o uart_system.o uart_control.o radio_protocol.o radio_control.o rf_switch.o radio_io.o radio_transport.o radio_live.o radio_live_io.o memory.o) build/sx126x.o
+LIVE_OBJECTS := $(addprefix build/meshctrl/,startup.o uart_system.o uart_control.o radio_protocol.o radio_control.o rf_switch.o radio_io.o radio_transport.o radio_live.o radio_live_io.o radio_phy.o memory.o) build/sx126x.o
 .PHONY: meshctrl mesh-check
 build/meshctrl:
 	mkdir -p $@
@@ -134,14 +134,15 @@ build/meshctrl/controller.hex: build/meshctrl/controller.elf
 	$(OBJCOPY) -O ihex $< $@
 meshctrl: build/meshctrl/controller.bin build/meshctrl/controller.hex
 mesh-check: meshctrl
-	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -DUART_RADIO_PROTOCOL -DUART_RADIO_LIVE -Iinclude -I$(VENDOR)/sx126x_driver/src tests/test_radio_protocol.c src/radio_protocol.c src/radio_control.c src/rf_switch.c src/radio_transport.c $(VENDOR)/sx126x_driver/src/sx126x.c -o build/meshctrl/test_config
+	$(HOSTCC) -std=c11 -O2 -Wall -Wextra -Werror -DUART_RADIO_PROTOCOL -DUART_RADIO_LIVE -Iinclude -I$(VENDOR)/sx126x_driver/src tests/test_radio_protocol.c src/radio_protocol.c src/radio_control.c src/radio_phy.c src/rf_switch.c src/radio_transport.c $(VENDOR)/sx126x_driver/src/sx126x.c -o build/meshctrl/test_config
 	./build/meshctrl/test_config
 	$(HOSTCC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -DUART_RADIO_LIVE -DUART_RADIO_PROTOCOL -Iinclude -I$(VENDOR)/sx126x_driver/src tests/test_live_transport.c src/radio_transport.c src/radio_protocol.c -o build/meshctrl/test_live_transport
 	./build/meshctrl/test_live_transport
 	$(HOSTCC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Itests/gpio-stubs -Iinclude tests/test_live_io.c src/radio_live_io.c -o build/meshctrl/test_live_io
 	./build/meshctrl/test_live_io
-	$(HOSTCC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffunction-sections -fdata-sections -Wl,--gc-sections -fsanitize=address,undefined -Iinclude -I$(VENDOR)/sx126x_driver/src -DUART_RADIO_LIVE tests/test_radio_live.c src/radio_live.c src/radio_protocol.c $(VENDOR)/sx126x_driver/src/sx126x.c -o build/meshctrl/test_live
+	$(HOSTCC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffunction-sections -fdata-sections -Wl,--gc-sections -fsanitize=address,undefined -Iinclude -I$(VENDOR)/sx126x_driver/src -DUART_RADIO_LIVE tests/test_radio_live.c src/radio_live.c src/radio_phy.c src/radio_protocol.c $(VENDOR)/sx126x_driver/src/sx126x.c -o build/meshctrl/test_live
 	./build/meshctrl/test_live
+	python3 tests/test_radio_features.py
 	python3 tools/verify_sources.py
 	CROSS_COMPILE="$(CROSS_COMPILE)" python3 tests/check_image.py build/meshctrl/controller
 -include $(LIVE_OBJECTS:.o=.d)

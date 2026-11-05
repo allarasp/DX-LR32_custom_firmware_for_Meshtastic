@@ -12,3 +12,8 @@ void *memset(void *dst, int value, size_t count) {
     for (size_t i = 0; i < count; ++i) { out[i] = (unsigned char)value; }
     return dst;
 }
+int memcmp(const void *a,const void *b,size_t count) {
+    const unsigned char *left=a,*right=b;
+    for(size_t i=0;i<count;++i)if(left[i]!=right[i])return (int)left[i]-(int)right[i];
+    return 0;
+}

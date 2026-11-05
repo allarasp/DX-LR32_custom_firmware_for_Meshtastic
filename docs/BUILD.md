@@ -185,7 +185,7 @@ v0.3.1 binary still matches its preserved hash. For host dependencies, codec tes
 and peer commands see [MESHTASTIC_TEST.md](MESHTASTIC_TEST.md). All builds are
 hardware-independent; only the explicit host bridge opens USB-UART.
 
-## Current live general-purpose build: v0.6.0
+## Current live general-purpose build: v0.7.0
 
 ```sh
 make -C firmware -j2 check radio-check uart-check protocol-check mesh-check
@@ -196,9 +196,9 @@ sh experiments/radio-smoke/check.sh
 python3 bin/test_live_controller.py
 ```
 
-The retained `meshctrl` target now produces v0.6.0: 12,920 B Flash and 2,392 B
-static RAM plus a reserved 1,024 B stack, leaving 680 B outside those allocations.
-The measured stack touched span in the recorded test was 552 B; this is not a
+The retained `meshctrl` target now produces v0.7.0: 20,212 B Flash and 2,496 B
+static RAM plus a reserved 1,024 B stack, leaving 576 B outside those allocations.
+The measured stack touched span in the recorded v0.7.0 test was 680 B; this is not a
 worst-case proof. Earlier size/result tables are historical. Rebuilding the
 separate v0.3.1 recovery source after shared parser changes produces 7,688 B
 Flash / 1,000 B static RAM; the original 7,664 B recovery image is retained
@@ -212,3 +212,17 @@ policy is delegated to the host. See [v0.5.1 evidence](v0.5.1-results.md).
 Version 0.6.0 adds direct UART frequency selection in the 433–434 and 863–870
 MHz windows plus automatic image-calibration selection. See
 [v0.6.0 usage and hardware evidence](v0.6.0-results.md).
+
+Version 0.7.0 adds the typed RSSI/stats/gain/CAD/sleep/duty/GFSK APIs. The
+`mesh-check` target includes live config/HAL tests and standard-library Python
+cross-language GFSK/PTY tests. Physical (connected-target) commands:
+
+```sh
+python3 bin/radio_features.py test
+python3 bin/test_live_controller.py
+```
+
+Both configure/receive but never transmit. TX tests are separate and require
+`--transmit`. See [v0.7.0 validation](v0.7.0-results.md) and
+[ESP32 integration](ESP32_INTEGRATION.md). The current controller binary is
+`firmware/build/meshctrl/controller.bin`; build targets never flash hardware.

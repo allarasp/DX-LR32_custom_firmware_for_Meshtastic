@@ -17,7 +17,7 @@ static uint16_t crcByte(uint16_t crc,uint8_t b) {
 DxlrUartInterface::DxlrUartInterface():OSThread("DXLR-UART",5) {}
 bool DxlrUartInterface::init() {
  RadioInterface::init();serial.setRxBufferSize(2048);serial.begin(115200,SERIAL_8N1,DXLR_RX_PIN,DXLR_TX_PIN);
- LOG_INFO("DXLR UART prepared RX=%d TX=%d; waiting for v0.4.0/v0.5.x/v0.6.0 controller",DXLR_RX_PIN,DXLR_TX_PIN);return true;
+ LOG_INFO("DXLR UART prepared RX=%d TX=%d; waiting for v0.4.0/v0.5.x/v0.6.0/v0.7.0 controller",DXLR_RX_PIN,DXLR_TX_PIN);return true;
 }
 void DxlrUartInterface::releaseTx() {
  if(sendingPacket) {packetPool.release(sendingPacket);sendingPacket=nullptr;}
@@ -87,7 +87,7 @@ void DxlrUartInterface::frame() {
  pendingCommand=0;
  if(p[0]) {LOG_WARN("DXLR command %u failed: %u",cmd,p[0]);dropLink();return;}
  if(stage<9) {
-  if(stage==0 && (n!=5||p[1]!=0||(p[2]!=4&&p[2]!=5&&p[2]!=6)||(p[2]==5?p[3]>1:p[3]!=0)||p[4]!=1)) {dropLink();return;}
+  if(stage==0 && (n!=5||p[1]!=0||(p[2]!=4&&p[2]!=5&&p[2]!=6&&p[2]!=7)||(p[2]==5?p[3]>1:p[3]!=0)||p[4]!=1)) {dropLink();return;}
   if(stage==1 && (n!=76||(u32(p+2)&0x300)!=0x300)) {dropLink();return;}
   if(stage==7 && (n!=9||u16(p+1)!=15||u16(p+3)!=15)) {dropLink();return;}
   ++stage;if(stage==9) {ready=true;LOG_INFO("DXLR radio connected and receiving; TX=%s",config.lora.tx_enabled?"enabled":"disabled");}

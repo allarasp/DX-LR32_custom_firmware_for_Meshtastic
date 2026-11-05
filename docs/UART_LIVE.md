@@ -1,13 +1,13 @@
-# Live raw-LoRa UART controller v0.6.0
+# Live raw-LoRa UART controller v0.7.0
 
 The `meshctrl` build name is retained for compatibility, but the CX32 handles
 raw LoRa packets and has no Meshtastic packet/encryption dependency. Existing
 protocol-v1 frame encoding, command IDs and payload layouts remain unchanged.
 Legacy `uartctrl` is still a separate non-RF v0.3.1 recovery target.
 
-BOOT and GET_VERSION identify 0.6.0. Capabilities mask is 0xFBFF: existing
+BOOT and GET_VERSION identify 0.7.0. Capabilities mask is 0x007FFBFF: existing
 0–9/11 features, bit 12 configurable TX, bit 13 radio/transport statistics,
-bit 14 queued UART output, bit 15 multiple frequency ranges (command 24). Bit 10 (TCXO) remains clear.
+bit 14 queued UART output, bit 15 multiple frequency ranges (command 24). Bit 10 (TCXO) remains clear. Bits 16–22 add RSSI, PHY statistics, RX gain, CAD, sleep/wake, duty RX and GFSK; see [feature formats](UART_FEATURES.md).
 
 ## Configuration and transmission
 
@@ -66,7 +66,7 @@ an existing arm. There is no persistence across reboot.
 
 ## Diagnostics and recovery
 
-GET_STATUS remains 28 bytes: mode 0 idle, 3 RX, 4 TX, 255 GPIO cleanup fault.
+GET_STATUS remains 28 bytes: mode 0 idle, 1 sleep, 2 CAD, 3 RX, 4 TX, 5 duty RX, 255 GPIO cleanup fault. Sleep/duty status queries do not perform SPI and use FF/FFFF sentinels for unobserved chip status/errors.
 Actual chip status and device errors remain separate fields. GET_RF_SWITCH
 keeps its layout, activation_enabled=1, and checks direction/type/pull/mux plus
 input/latch levels when driven. PC3/PC4 use the user-accepted factory switching
@@ -97,8 +97,8 @@ unconnected UART TX pin can still shift bytes normally.
 
 SPI stays in main context. IRQs are polled at bounded intervals. RX extraction
 pauses reception and rearms before emission. The asynchronous UART reduces
-blind time, but back-to-back RF packet loss is still possible. No CAD/CSMA,
-GFSK API, sleep API, arbitrary SPI commands, DIO2 or DIO3 controls are exposed.
+blind time, but back-to-back RF packet loss is still possible. CAD, GFSK, sleep and duty RX are now exposed through typed commands. There is
+no automatic CSMA/retransmission engine, arbitrary SPI access, DIO2 or DIO3 control.
 
 ## Events
 
@@ -120,3 +120,7 @@ recorded in [v0.5.0 results](v0.5.0-results.md); the power-range follow-up is
 
 Current dual-band configuration and physical RX checks are recorded in
 [v0.6.0 results](v0.6.0-results.md).
+
+Version 0.7.0 extension events are CAD_DONE 0x85 and GFSK_RX_PACKET 0x86;
+LoRa event 0x81 is unchanged. Complete layouts and sleep/duty state rules are
+in [UART_FEATURES.md](UART_FEATURES.md).

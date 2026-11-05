@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """DX-LR32 binary UART controller; standard library only, never starts RF."""
 import argparse
+from collections import deque
 import binascii
 import fcntl
 import json
@@ -15,7 +16,7 @@ VERSION = 1
 MAX_PAYLOAD = 272
 COMMANDS = dict(version=1, caps=2, status=3, frequency=4, lora=5, packet=6,
                 power=7, apply=8, start_rx=9, stop_rx=10, send=11, errors=12,
-                reset=13, config=14, mode=15, stats=16, readback=17, xosc=18, rf_switch=19, ping=20, arm_tx=21, radio_stats=22, transport_stats=23, bands=24)
+                reset=13, config=14, mode=15, stats=16, readback=17, xosc=18, rf_switch=19, ping=20, arm_tx=21, radio_stats=22, transport_stats=23, bands=24, rssi=25, phy_stats=26, reset_phy_stats=27, ext_status=36)
 STATUS = ('OK', 'VERSION', 'FRAME', 'CRC', 'TIMEOUT', 'UNKNOWN', 'LENGTH',
           'RANGE', 'COMBINATION', 'UNSUPPORTED', 'RADIO_ERROR', 'NOT_READY',
           'READBACK', 'DISABLED', 'OVERFLOW', 'DUPLICATE')
@@ -60,6 +61,12 @@ def describe(command, reply):
         return dict(state=reply[1], last_error=reply[2], activation_enabled=bool(reply[3]), direction_mask=reply[4],
                     open_drain_mask=reply[5], pull_bits=struct.unpack_from('<H',reply,6)[0],
                     alternate_bits=struct.unpack_from('<I',reply,8)[0], input_mask=reply[12], latch_mask=reply[13])
+    if command == 25 and len(reply)==8:
+        return dict(rssi_dbm=struct.unpack_from('<h',reply,1)[0]/4,packet_type=reply[3],frequency_hz=struct.unpack_from('<I',reply,4)[0])
+    if command == 26 and len(reply)==8:
+        return dict(packet_type=reply[1],received=struct.unpack_from('<H',reply,2)[0],crc_errors=struct.unpack_from('<H',reply,4)[0],header_or_length_errors=struct.unpack_from('<H',reply,6)[0])
+    if command == 36 and len(reply)==25:
+        return dict(mode=reply[2],pending_type=reply[3],active_type=reply[4],active_valid=bool(reply[5]),boosted=bool(reply[6]),busy=bool(reply[7]),dio1=bool(reply[8]),generation=struct.unpack_from('<I',reply,9)[0],duty_remaining_ms=struct.unpack_from('<I',reply,13)[0],tx_cooldown_ms=struct.unpack_from('<I',reply,17)[0],arm_remaining_ms=struct.unpack_from('<I',reply,21)[0])
     if command == 24 and len(reply)>=3 and len(reply)==3+8*reply[2]:
         return dict(schema=reply[1],ranges_hz=[list(struct.unpack_from('<II',reply,3+8*i)) for i in range(reply[2])])
     if command == 23 and len(reply) == 11:
@@ -181,6 +188,38 @@ class Link:
         return reply
 
 
+class EventLink(Link):
+    def __init__(self,*args,**kwargs):
+        super().__init__(*args,**kwargs);self.radio_events=deque();self.dropped_events=0
+    def pump(self,timeout):
+        if not select.select([self.fd],[],[],timeout)[0]:return
+        data=os.read(self.fd,4096)
+        if not data:raise OSError('serial device disconnected')
+        for frame in self.decoder.feed(data):
+            if frame[0]!=1:continue
+            if frame[1]==2:
+                if len(self.radio_events)>=64:self.radio_events.popleft();self.dropped_events+=1
+                self.radio_events.append(frame)
+            else:self.pending.append(frame)
+    def receive(self,command,seq,timeout=2,kind=1):
+        deadline=time.monotonic()+timeout
+        while time.monotonic()<deadline:
+            if kind==2:
+                for _ in range(len(self.radio_events)):
+                    event=self.radio_events.popleft()
+                    if event[:4]==(VERSION,kind,command,seq):return event[4]
+                    self.radio_events.append(event)
+            for _ in range(len(self.pending)):
+                frame=self.pending.pop(0)
+                if frame[:4]==(1,kind,command,seq):return frame[4]
+                self.log('UNMATCHED',kind=frame[1],command=frame[2],seq=frame[3])
+            self.pump(min(.1,max(0,deadline-time.monotonic())))
+        raise TimeoutError(f'no reply command={command} sequence={seq}')
+    def event(self,timeout=.5):
+        if not self.radio_events:self.pump(timeout)
+        return self.radio_events.popleft() if self.radio_events else None
+
+
 def configure(link, frequency=433875000, sf=11, bandwidth=250000, cr=5, ldro=0,
               preamble=16, sync=0x24b4, header=0, crc=1, iq=0, length=255, power=-9):
     link.request(4, struct.pack('<I', frequency))
@@ -269,7 +308,7 @@ def main():
     parser.add_argument('--iq', type=int, choices=(0,1), default=0)
     parser.add_argument('--length', type=int, default=255)
     parser.add_argument('--power', type=int, default=-9)
-    parser.add_argument('command', choices=('self-test','configure','version','caps','status','config','errors','reset','stats','readback','xosc','rf_switch','ping','radio_stats','transport_stats','bands'), default='status', nargs='?')
+    parser.add_argument('command', choices=('self-test','configure','version','caps','status','config','errors','reset','stats','readback','xosc','rf_switch','ping','radio_stats','transport_stats','bands','rssi','phy_stats','reset_phy_stats','ext_status'), default='status', nargs='?')
     args = parser.parse_args()
     ports = list(Path('/dev/serial/by-id').glob('usb-1a86_*'))
     if not args.port and len(ports) != 1:

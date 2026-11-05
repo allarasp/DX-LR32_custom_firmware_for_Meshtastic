@@ -14,11 +14,11 @@ def main():
     if not a.port and len(ports)!=1:ap.error('specify --port; exactly one CH340 is required')
     link=Link(a.port or str(ports[0]),a.log)
     try:
-        link.write(b'\x7e');version=link.request(1);assert version[:2]==b'\0\0' and version[2] in (5,6) and version[4]==1
+        link.write(b'\x7e');version=link.request(1);assert version[:2]==b'\0\0' and version[2] in (5,6,7) and version[4]==1
         dual_band=version[2]>=6
         maximum=22 if dual_band or version[3]>=1 else 10
         assert link.request(20)==b'\0PONG'
-        caps=link.request(2);assert struct.unpack_from('<I',caps,2)[0]==(0xfbff if dual_band else 0x7bff)
+        caps=link.request(2);assert struct.unpack_from('<I',caps,2)[0]==(0x7ffbff if version[2]>=7 else 0xfbff if dual_band else 0x7bff)
         link.request(10)
         if not dual_band:link.request(4,struct.pack('<I',868000000),expected=9)
         assert caps[26]==22 and caps[27]==maximum

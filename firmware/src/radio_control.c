@@ -4,6 +4,9 @@
 #include "rf_switch.h"
 #include "sx126x.h"
 #include "sx126x_regs.h"
+#ifdef UART_RADIO_LIVE
+#include "radio_phy.h"
+#endif
 
 struct rc_config rc_pending,rc_active;
 bool rc_active_valid;
@@ -43,6 +46,9 @@ static uint8_t reset(void) {
         status() && errors() && device_errors==0 ? RP_OK:RP_RADIO_ERROR;
 }
 uint8_t rc_init(void) {
+#ifdef UART_RADIO_LIVE
+    phy_init();
+#endif
     rc_pending=(struct rc_config){433875000,250000,16,0x24b4,11,5,0,0,1,0,255,
 #ifdef UART_RADIO_LIVE
         -9
@@ -55,6 +61,9 @@ uint8_t rc_init(void) {
     uint8_t result=reset();return pins==RF_SWITCH_OK?result:RP_READBACK;
 }
 static uint8_t valid(const struct rc_config *c) {
+#ifdef UART_RADIO_LIVE
+    if(phy_pending_type==0)return phy_validate(c);
+#endif
     uint32_t lower,upper;
     uint8_t band=rc_frequency_bounds(c->frequency,&lower,&upper);
     if(band!=RP_OK)return band;
@@ -70,6 +79,17 @@ static uint8_t apply(void) {
     uint8_t result=valid(&rc_pending);
     if(result) return result; /* Invalid candidate never changes the radio/active snapshot. */
     rc_active_valid=false;applied_mask=readback_mask=0;++rc_generation;dirty=true;
+#ifdef UART_RADIO_LIVE
+    if(phy_pending_type==0) {
+        if(!hal(sx126x_set_standby(0,SX126X_STANDBY_CFG_RC))||!status()||
+           !hal(sx126x_set_pkt_type(0,SX126X_PKT_TYPE_GFSK))||!hal(sx126x_set_rf_freq(0,rc_pending.frequency))||
+           !phy_apply()||!status()||!errors()||device_errors)return RP_RADIO_ERROR;
+        rc_active=rc_pending;rc_active_valid=true;dirty=false;phy_active_type=0;
+        applied_mask=readback_mask=PHY_GFSK_MASK;return RP_OK;
+    }
+    /* Undo low-rate GFSK tweaks before switching back to the LoRa modem. */
+    if(phy_active_type==0&&!hal(sx126x_workaround_gfsk_reset(0)))return RP_RADIO_ERROR;
+#endif
     sx126x_mod_params_lora_t m={(sx126x_lora_sf_t)rc_pending.sf,(sx126x_lora_bw_t)rc_bandwidth_code(rc_pending.bandwidth),
         (sx126x_lora_cr_t)(rc_pending.cr-4),rc_pending.ldro};
     sx126x_pkt_params_lora_t pkt={rc_pending.preamble,(sx126x_lora_pkt_len_modes_t)rc_pending.header,
@@ -90,7 +110,11 @@ static uint8_t apply(void) {
        !hal(sx126x_read_register(NULL,SX126X_REG_TX_MODULATION,&txmod,1))) return RP_RADIO_ERROR;
     if(type!=SX126X_PKT_TYPE_LORA || read_sync[0]!=sync[0] || read_sync[1]!=sync[1] ||
        ((iq>>2)&1u)!=(rc_pending.iq?0u:1u) || ((txmod>>2)&1u)!=(rc_pending.bandwidth==500000?0u:1u)) return RP_READBACK;
-    rc_active=rc_pending;rc_active_valid=true;dirty=false;applied_mask=readback_mask=15;return RP_OK;
+    rc_active=rc_pending;rc_active_valid=true;dirty=false;applied_mask=readback_mask=15;
+#ifdef UART_RADIO_LIVE
+    phy_active_type=1;
+#endif
+    return RP_OK;
 }
 /* Capture the first failure before cleanup can overwrite the HAL error. */
 static void xosc_failure(uint8_t *out,uint8_t phase,uint8_t error) {
@@ -138,6 +162,23 @@ cleanup:
 uint16_t rc_handle(uint8_t cmd,const uint8_t *p,uint16_t n,uint8_t *out) {
     out[0]=RP_OK;
     struct rc_config candidate=rc_pending;
+#ifdef UART_RADIO_LIVE
+    if(cmd==RP_SET_PACKET_TYPE) {
+        if(n!=1) {out[0]=RP_LENGTH;return 1;}
+        if(p[0]>1) {out[0]=RP_RANGE;return 1;}
+        phy_pending_type=p[0];dirty=true;return 1;
+    }
+    if(cmd==RP_SET_GFSK) {
+        if(n!=PHY_GFSK_WIRE_SIZE) {out[0]=RP_LENGTH;return 1;}
+        out[0]=phy_stage(p);if(out[0]==RP_OK) {phy_pending_type=0;dirty=true;}return 1;
+    }
+    if(cmd==RP_GET_GFSK) {
+        if(n!=1) {out[0]=RP_LENGTH;return 1;}
+        if(p[0]>1) {out[0]=RP_RANGE;return 1;}
+        out[1]=p[0];out[2]=rc_active_valid;out[3]=p[0]?phy_active_type:phy_pending_type;
+        phy_encode(out+4,p[0]?&phy_active:&phy_pending);return 4+PHY_GFSK_WIRE_SIZE;
+    }
+#endif
     switch(cmd) {
     case RP_PING:
         if(n) break;
@@ -178,6 +219,9 @@ uint16_t rc_handle(uint8_t cmd,const uint8_t *p,uint16_t n,uint8_t *out) {
         if(n!=7) break;
         candidate.sf=p[0];candidate.bandwidth=rp_u32(p+1);candidate.cr=p[5];candidate.ldro=p[6];
         if(candidate.sf<5 || candidate.sf>12 || rc_bandwidth_code(candidate.bandwidth)<0 || candidate.cr<5 || candidate.cr>8 || candidate.ldro>1) {out[0]=RP_RANGE;return 1;}
+#ifdef UART_RADIO_LIVE
+        phy_pending_type=1;
+#endif
         goto stage;
     case RP_SET_PACKET:
         if(n!=8) break;
@@ -206,6 +250,9 @@ uint16_t rc_handle(uint8_t cmd,const uint8_t *p,uint16_t n,uint8_t *out) {
         if(n) break;
         out[0]=errors()?RP_OK:RP_RADIO_ERROR;rp_put16(out+1,device_errors);return 3;
     case RP_GET_READBACK: {
+#ifdef UART_RADIO_LIVE
+        if(rc_active_valid&&phy_active_type==0) {out[0]=RP_UNSUPPORTED;return 1;}
+#endif
         if(n) break;
         sx126x_pkt_type_t type;
         uint8_t sync[2],iq,txmod;

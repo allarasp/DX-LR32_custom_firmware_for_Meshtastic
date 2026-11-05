@@ -32,7 +32,7 @@ static uint16_t handle(uint8_t cmd,const uint8_t *p,uint16_t n,uint8_t *out) {
 #endif
     uint16_t count=rc_handle(cmd,p,n,out);
 #ifdef UART_RADIO_LIVE
-    if(cmd==RP_GET_CAPABILITIES && out[0]==RP_OK)rp_put32(out+2,0xfbffu); /* Adds GET_FREQUENCY_RANGES; never TCXO */
+    if(cmd==RP_GET_CAPABILITIES && out[0]==RP_OK)rp_put32(out+2,0x7ffbffu); /* Adds GET_FREQUENCY_RANGES; never TCXO */
 #endif
     return count;
 }

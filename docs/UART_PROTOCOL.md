@@ -379,3 +379,11 @@ layout and existing command formats remain unchanged; protocol version stays 1.
 Original module/primary-band capability fields retain their old meanings; use
 command 24 for the complete list of accepted settings. See
 [dual-band contract](UART_LIVE.md) and [v0.6.0 results](v0.6.0-results.md).
+
+### v0.7.0 feature set
+
+Protocol version 1 and existing layouts are preserved. Commands 25–36 add
+RSSI, hardware statistics, RX gain, CAD, sleep/wake, duty RX and GFSK. New
+events 0x85/0x86 carry CAD completion/GFSK packets. Capabilities are 0x007FFBFF.
+See [UART_FEATURES.md](UART_FEATURES.md) for every field, mode, validation rule
+and status sentinel, and [v0.7.0 results](v0.7.0-results.md) for actual tests.
