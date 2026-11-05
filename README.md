@@ -65,4 +65,4 @@ Generated binaries, downloaded dependencies and private logs/identifiers stay ou
 
 ## Support the project
 
-If this project helps you, you can support the hardware, testing and documentation through [Buy Me a Coffee — eightteamtu](https://buymeacoffee.com/eightteamtu). Thank you for supporting the project.
+If this project helps you, you can support the hardware, testing and documentation through [Buy Me a Coffee — allar](https://buymeacoffee.com/allar). Thank you for supporting the project.
