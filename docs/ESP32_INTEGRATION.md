@@ -1,4 +1,4 @@
-# Using the v0.7.0 controller from an ESP32
+# Using the v0.8.0 controller from an ESP32
 
 The CX32 firmware is a raw LoRa/GFSK radio controller. ESP32 application code
 owns region/channel selection, encryption, routing, acknowledgements, retries
@@ -22,11 +22,12 @@ hosts must not drive the module RX line. AUX/M0/M1 are not required by this
 protocol and remain inputs. SWD pins are not repurposed. Removing ST-Link does
 not affect normal startup; keep the programming pads accessible for upgrades.
 
-The maintained CYD adapter source now accepts controller v0.7.0. The CYD image
-installed during the earlier display stage only accepted the older controller;
-**upload the newly built compatible CYD application before testing this link**.
-The updated application has been compiled, not uploaded/tested on the CYD in
-this stage. See [CYD build/wiring](../cyd/README.md) and the local build outputs:
+The current CYD adapter requires controller v0.8.0 and the host-mode/RX-activity
+capabilities. The matching pair adds the upstream queue/delay behavior, CAD,
+airtime accounting and saved TX configuration. The earlier v0.7.0 pair established
+wired reception, UI transmission and broadcast delivery confirmation. See
+[v0.8.0 results](v0.8.0-results.md) for the current build and physical evidence,
+and [CYD build/wiring](../cyd/README.md). Application output:
 
 `.local/meshtastic-cyd/.pio/build/cyd-dxlr32/firmware-cyd-dxlr32-2.7.26.54e0d8d.bin`
 
@@ -34,29 +35,36 @@ For the previously programmed board with the existing partition layout, this
 is an application image at 0x10000. It is not a Flash-at-zero factory image.
 The matching factory/partition/filesystem outputs also exist in that build
 folder; do not mix layouts. Existing display touch calibration is in NVS.
-No ESP32 erase/upload or configuration write was performed in the v0.7.0 stage.
+The earlier v0.7.0 controller preparation did not update the ESP32; see
+[cyd-bringup.md](cyd-bringup.md) for the subsequent wired updates.
 
-The CYD build still defaults to EU_433/public LongFast and TX disabled at boot.
-Its adapter deliberately requests -9 dBm for the initial wired test, although
-the CX32 accepts -9..+22 dBm. Later host changes can use the normal regional
-power choice; the MCU no longer applies an EU power ceiling. Enabling TX on the
-CYD is an explicit test-session action, separate from wiring and RX validation.
+New CYD configurations default to EU_433/public LongFast and TX disabled.
+The current build preserves an explicit saved TX setting across reboot.
+The adapter forwards upstream's configured/region-limited power, bounded by the
+controller's -9..+22 dBm command range. Modem presets/custom LoRa settings and RX
+gain also follow normal configuration within the implemented tuning windows.
 
 ## Host sequence
 
 1. Configure UART 115200 8N1. Decode protocol-v1 delimiter/escape/CRC framing.
 2. Accept BOOT event 0x80 and query GET_VERSION (1), capabilities (2), frequency
    ranges (24). Use capability bits rather than assuming every future command.
-3. STOP_RX (10); choose LoRa (33 with byte 1) or GFSK (33 with byte 0).
+3. STOP_RX (10); a host implementing channel access/airtime policy may enable
+   SET_HOST_MODE (37, byte 1, require echoed 1). Configure RX gain (28) if needed. Choose LoRa (33 with byte 1) or GFSK (33 with byte 0).
 4. Stage frequency in Hz (4), power (7), and the corresponding modem/packet
    fields. LoRa uses 5/6; GFSK uses 34. APPLY (8) and require success, expected
    readback mask and active-valid state. Inspect radio errors (12).
 5. START_RX (9) with u32 zero for continuous receive. Consume LoRa events 0x81
    or GFSK events 0x86, keeping their distinct metadata layouts.
-6. For transmission, inspect cooldown through GET_EXT_STATUS (36). ARM_TX (21,
-   ASCII TX1!) grants one attempt; SEND_PACKET (11) carries 1..255 raw bytes.
-   The command reply accepts the attempt; only TX_DONE 0x82 confirms radio
-   completion. Neither proves peer/application delivery. Match the sequence.
+6. For transmission, use the upstream priority queue and randomized/SNR-weighted
+   delays. GET_RX_ACTIVITY (38) avoids interrupting a received frame. Once idle,
+   STOP_RX, START_CAD (29) and await the matching 0x85 event. A busy scan returns
+   to RX and reschedules; a clear scan permits ARM_TX (21, ASCII TX1!) and SEND
+   (11). Check regional/channel airtime limits again and charge estimated airtime
+   once. TX_DONE (0x82) confirms radio completion, not peer delivery. Resume RX.
+   Hosts outside managed mode must still inspect the default test cooldown using
+   GET_EXT_STATUS (36); their 2 s packet limit also remains.
+
 7. On reset/BOOT, radio fault or cold sleep, reconfigure before RF operation.
    Do not blindly retry a TX with a new sequence after a lost reply; duplicate
    protection only remembers the most recent attempted sequence.
@@ -78,11 +86,9 @@ confirmation. See the official [broadcast algorithm](https://meshtastic.org/docs
 
 The ESP32's actual Meshtastic stack owns ACK/rebroadcast behavior. This needs
 an end-to-end wired test; it does not belong inside the generic CX32 firmware.
-The current CYD adapter retains a one-packet queue and conservative 31-second
-transmit spacing; the CX32 has a 30-second attempt cooldown and <=2 s airtime
-guard. Those constraints can delay or reject mesh control traffic, so complete
-routing/ACK interoperability is not established by the WSL text test.
+The current CYD uses a 16-packet upstream priority queue and host-managed TX
+without the fixed test cooldown; normal airtime/channel limits still apply.
 
 CAD, hardware counters, RSSI, gain, sleep, duty RX and GFSK are available to any
-UART host. The existing CYD adapter uses normal LoRa RX/TX; its full integration
-with CAD/sleep/GFSK is not implemented merely because the MCU supports them.
+UART host. The CYD adapter integrates normal LoRa RX/TX and CAD. Sleep and GFSK are
+controller capabilities, not integrated Meshtastic radio modes.

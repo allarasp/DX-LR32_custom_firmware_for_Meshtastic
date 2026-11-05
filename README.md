@@ -1,191 +1,68 @@
-# DX-LR32 UART radio firmware
+# Meshtastic DIY: CYD touchscreen + DX-LR32
 
-Firmware under development for using the **DX-LR32-A (433 MHz)** LoRa module as an external **UART-connected SX1262 radio controller**.
+Build a standalone touchscreen Meshtastic node from a **two-USB ESP32-2432S028 CYD** and a **DX-LR32-A 433 MHz LoRa module**. Send channel messages or direct messages on the screen, or connect the Meshtastic phone app over Bluetooth. A PC is needed for installation, not everyday use.
 
-The CX32 firmware is a raw LoRa radio controller usable by other UART host applications, with Meshtastic as the first integration. It does not parse Meshtastic packets or manage encryption.
+The ESP32 runs Meshtastic and the interface. Custom firmware on the DX-LR32's CX32L003F8 controls its SX1262 radio over a UART link. This is an experimental community project, **not an officially supported Meshtastic board**.
 
-The goal of the Meshtastic integration is to build a standalone Meshtastic messaging device with an **ESP32-2432S028 CYD touchscreen**, without requiring a phone or Bluetooth. The ESP32 would run the Meshtastic network stack and user interface; the DX-LR32's existing **CX32L003F8** microcontroller would control its SX1262 over SPI.
+> **Before flashing:** we do **not** have a complete backup of the original DX-LR32 manufacturer firmware. Flashing replaces its original operation; this repository cannot restore it to stock. The older “recovery” images are our custom diagnostics, not factory firmware. Back up your own untouched module first if it permits reading. Never unlock read protection just to obtain a backup.
 
-> **Development status — a two-way public-channel text exchange with a phone-connected 433 MHz LilyGO TTGO is verified.** The WSL bridge and meshctrl v0.4.0 exchanged real EU_433 LongFast messages. This establishes the tested text/profile path, not complete Meshtastic routing or feature compatibility. The CYD radio adapter still needs a wired test. See [peer-test evidence](docs/meshtastic-peer-test.md).
+<p>
+  <img src="docs/images/dx-lr32-front-unshielded.jpeg" width="260" alt="DX-LR32 component side, shield removed for research">
+  <img src="docs/images/dx-lr32-swd-pads-annotated.jpeg" width="260" alt="Back of DX-LR32 with five SWD pads numbered">
+</p>
 
-**Current firmware: v0.7.0**, programmed, readback-verified and power-cycle
-verified. It supports UART-configurable LoRa and GFSK, **433–434 MHz or
-863–870 MHz**, -9..+22 dBm commanded power, instantaneous RSSI, hardware
-statistics, RX gain, CAD, radio sleep/wake and duty-cycled reception. No band
-mode/enable flag is needed; regulatory power/channel policy belongs to the host.
+The RF shield was removed for the research photograph. **You do not need to remove it to flash through the back pads.** [Photo/pinout details](docs/hardware-photos-and-pin-counting.md).
 
-The physical feature suite passed. A short GFSK transmission completed; a new
-LoRa round trip with Alr1 passed, and duty RX received `Alr1 duty070` through
-DIO1-driven servicing. GFSK peer interoperability and 868 MHz RF performance
-still need measurement. Size: **20,212 B Flash, 2,496 B static RAM + 1 KB stack**;
-observed stack use was 680 B in the recorded workload. See
-[v0.7.0 results](docs/v0.7.0-results.md), [new UART commands](docs/UART_FEATURES.md),
-[raw radio contract](docs/UART_LIVE.md) and [ESP32 integration](docs/ESP32_INTEGRATION.md).
-The updated CYD application has been built but must still be uploaded before
-wiring/testing its radio adapter. This is not a claim of full Meshtastic
-routing/ACK/PKI interoperability.
+## What you need
 
-**The preserved v0.3.1 recovery image was programmed, readback-verified and physically tested.** Its bounded
-crystal diagnostic reported standby RC → XOSC → RC (`0x22 → 0x32 → 0x22`),
-zero errors at every step, and 18 ms elapsed. UART regression tests and binary
-PING/PONG pass. Build size is 7,664 B Flash and 992 B static SRAM plus 1 KB stack.
-See [measured oscillator results](docs/oscillator-test.md) and
-[RF-switch investigation](docs/rf-switch-investigation.md). PC3/PC4 remained
-undriven inputs during that stage. The load remains unresolved. RX/TX,
-DIO2 control and DIO3 TCXO control remain disabled in that firmware.
-The oscillator diagnostic itself performed no RF operation.
-
-A later, explicitly authorized [RAM-only RX/TX experiment](docs/radio-rxtx-smoke-test.md)
-verified RX mode/RSSI and one -9 dBm-commanded four-byte transmission with TxDone
-at 433.500 MHz. No peer was used for that early smoke test; the later
-LongFast exchange is documented separately below. Flash v0.3.1 was unchanged; its normal RX/TX commands remain disabled.
-The RF-switch load remains unresolved, and safe sustained operation is not established.
-
-The separate experimental **meshctrl v0.4.0** image and WSL bridge passed a
-real public-channel round trip: the peer sent `Alr1 ready`, our one test packet
-arrived in the phone app, and the bridge received the peer's reply `Recived`.
-The radio was then returned to standby RC with zero errors and switch GPIOs
-released. v0.4.0 remains 11,784 B Flash / 1,304 B static SRAM + 1 KB stack;
-v0.3.1 remains a buildable recovery target. See [measured results](docs/meshtastic-peer-test.md),
-[WSL test guide](docs/MESHTASTIC_TEST.md) and [live UART additions](docs/UART_LIVE.md).
-
-A custom Meshtastic **2.7.26** build has also been uploaded to the two-USB
-ESP32-2432S028 CYD. Flash hashes, boot and the official serial API were verified. The revised UI
-adds calibrated touch, Prev/Menu/Next/Chat buttons and an on-screen keyboard;
-the user confirmed improved usability.
-EU_433/LongFast and Bluetooth are enabled, while RF TX is disabled. The CYD is
-not yet wired to the DX-LR32, so the adapter's end-to-end radio path is untested.
-See [CYD build/wiring](cyd/README.md) and [actual bring-up results](docs/cyd-bringup.md).
-
-## Architecture
-
-```text
-ESP32-2432S028 CYD
-  Meshtastic + touchscreen UI
-           |
-       UART 115200
-           |
-DX-LR32-A (CX32L003F8 MCU)
-  custom radio-controller firmware
-           |
-           SPI
-           |
-     SX1262 (433 MHz)
-           |
-        LoRa mesh
-```
-
-## Hardware
-
-- **DX-LR32-A:** 433 MHz LoRa module with Semtech SX1262.
-- **CX32L003F8 (ZB003F8):** Cortex-M0+, 64 KB Flash, 4 KB RAM.
-- **ST-Link V2:** SWD programming/debugging.
-- **CH340 USB–UART:** serial diagnostics, 115200 baud, 8N1.
-- **ESP32-2432S028 CYD:** planned standalone touchscreen host.
-
-### SX1262 ↔ CX32L003F8
-
-The SPI/DIO1 connections were traced using a multimeter. The original RESET/BUSY assignment was reversed; the corrected mapping below was established from surviving factory code and verified with real SPI responses. See [the pin correction and physical tests](docs/factory-pin-correction.md). IC pin numbers are package pin numbers.
-
-| SX1262 signal (pin) | CX32L003F8 port (pin) |
+| Item | Exact tested hardware / purpose |
 | --- | --- |
-| NSS (19) | PA2 (3) |
-| SCK (18) | PA1 (2) |
-| MOSI (17) | PD3 (17) |
-| MISO (16) | PD2 (16) |
-| NRESET (15) | PB4 (9) |
-| BUSY (14) | PB5 (8) |
-| DIO1 (13) | PD4 (18) |
+| CYD touchscreen | **ESP32-2432S028 with USB-C and micro-USB**, ESP32-D0WD-V3, 4 MB Flash, **ST7789** display, XPT2046 touch. One-USB/ILI9341 CYDs need different configuration. |
+| Radio module | **DX-LR32-A 433 MHz**, CX32L003F8 controller (marked ZB003F8) + SX1262. Not an interchangeable Ebyte UART modem. |
+| Antenna | Suitable 433 MHz antenna connected before any transmission. |
+| ST-Link programmer | SWD access to the DX-LR32; temporary, not needed after installation. |
+| Power and cables | USB data cable for CYD, a suitable regulated **3.3 V** module supply, common GND, jumper wires; soldering iron or reliable pogo connection to SWD pads. Use one supply per rail. |
+| PC | Ubuntu/Linux or Windows with Ubuntu in WSL2 and USB passthrough. Source builds download tools/dependencies. |
+| Recommended | Multimeter, stylus, and another correctly configured Meshtastic node for a real radio test. A separate USB–UART adapter is optional diagnostics equipment. |
 
-### External DX-LR32 connections
+## Connect the boards
 
-| Module signal | CX32L003F8 port (pin) |
-| --- | --- |
-| AUX | PA3 (7) |
-| TXD | PD5 / UART0_TX (19) |
-| RXD | PD6 / UART0_RX (20) |
-| M1 | PC6 (13) |
-| M0 | PC5 (12) |
+![UART wiring and power arrangement](docs/images/cyd-dxlr32-wiring.svg)
 
-Each of these five external signal lines has a measured **100 Ω series resistor**. Connect UART TX to the host's RX and UART RX to the host's TX. Use compatible logic levels and a common ground.
+| CYD pin | DX-LR32 header label | Direction |
+| --- | --- | --- |
+| **GPIO27** | **RXD** (MCU PD6) | CYD → radio |
+| **GPIO22** | **TXD** (MCU PD5) | radio → CYD |
+| **GND** | **GND** | Common ground |
 
-### SWD pads on the module
+UART is **115200 baud, 8N1, 3.3 V logic**. Power off before wiring. The CYD is powered over USB; the module uses its single verified supply. Do not assume the CYD's 3.3 V output can supply the module. Remove a separate USB–UART adapter's TX/RX leads when CYD is the host. AUX/M0/M1 are not required by this custom firmware. [Full wiring and first-run guide](docs/DIY_GUIDE.md).
 
-| Pad | Connection |
-| --- | --- |
-| 1 | NRST (CX32 pin 1) |
-| 2 | SWDCLK / PD1 (CX32 pin 15) |
-| 3 | SWDIO / PC7 (CX32 pin 14) |
-| 4 | GND |
-| 5 | VCC |
+## Install and start
 
-Ensure a single safe power arrangement before connecting a programmer or USB–UART adapter.
+There are **two different firmware images**, one for each board. A generic Meshtastic web-flasher image does not include this custom UART radio adapter. This repository currently provides a source-build route; there are no published binary release downloads yet.
 
-For QFN pin-1 orientation and counterclockwise physical pin numbering, SWD pad numbering, and photos taken after removal of the RF shield, see the [hardware photographs and pin-counting guide](docs/hardware-photos-and-pin-counting.md).
+1. [Prepare your PC and identify both boards](docs/DIY_GUIDE.md#1-prepare-the-pc).
+2. [Back up and flash the DX-LR32 over ST-Link/SWD](docs/FLASHING_DX_LR32.md). Build the current controller with `make -C firmware mesh-check`; use **meshctrl**, not the historical default/diagnostic targets.
+3. [Build and flash the CYD over USB](docs/FLASHING_CYD.md). First installation uses the **factory image at `0x0` plus matching filesystem at `0x300000`**. Later app-only updates use **`0x10000`**.
+4. [Connect UART, calibrate touch, configure the node, and test](docs/DIY_GUIDE.md#4-first-start-and-radio-test). New configurations default to **EU_433 / LongFast with TX off**. Choose an appropriate regional setup and explicitly enable transmission through the phone app or USB API before testing.
 
-## Verified progress
+The bottom controls are **Prev / Menu / Next / Chat**. Menu turns green **OK** while selecting settings. Chat lets you choose an enabled channel or known-node direct message, then Compose. Clock and System menus include manual time, display timeout, device and LoRa settings. Display sleep keeps radio/Bluetooth running; the first touch wakes the display. [All GUI controls and limits](docs/cyd-gui.md).
 
-- [x] Mapped MCU↔SX1262, external UART, and SWD connections.
-- [x] Established ST-Link V2 SWD connection at 100 kHz.
-- [x] Identified the Cortex-M0+ and checked the target Flash.
-- [x] Built and flashed custom diagnostic firmware **v0.1.1**.
-- [x] Verified boot, firmware readback, and physical UART communication.
-- [x] Verified `PING` / `PONG`, `VERSION`, and `STATUS` over UART at 115200 8N1.
-- [x] Verify v0.1.1 boot and UART after a full power cycle.
-- [x] Build, program and readback-verify radio diagnostic **v0.2.1**; UART remains working.
-- [x] Resolve BUSY timeout by correcting RESET=PB4 / BUSY=PB5.
-- [x] Initialize SX1262 in standby RC, read status/errors, and verify reversible GFSK/LoRa packet-type changes over SPI.
-- [x] Build/flash v0.3.0 and physically test binary UART framing, dynamic configuration, readbacks, validation and recovery.
-- [ ] Validate receive/transmit of LoRa packets.
-- [ ] Implement the ESP32-side Meshtastic UART radio adapter.
-- [ ] Implement and test the standalone CYD touchscreen interface.
-- [ ] Demonstrate interoperability with a real Meshtastic node.
+## What is verified
 
-## Source code and setup
+The current matched pair is **DX-LR32 controller v0.8.0** and our CYD overlay on pinned **Meshtastic 2.7.26.54e0d8d**. Physical tests confirmed channel and encrypted direct messaging with another node, delivery acknowledgements, Bluetooth messaging, touch controls and display sleep/wake. Builds and host sanitizer tests pass. [Controller evidence](docs/v0.8.0-results.md) · [CYD bring-up](docs/cyd-bringup.md) · [GUI validation](docs/cyd-gui.md).
 
-The firmware sources, GNU startup/linker code, tests, and generic OpenOCD configurations are included. On Ubuntu/WSL, install the build prerequisites and fetch the pinned source dependencies:
+The normal host-managed radio path uses Meshtastic's queue, CAD/channel checks and airtime policy rather than the earlier fixed test cooldown. This is still experimental: long-duration stability, full RF-switch/load characterization and comprehensive RF qualification remain unfinished. Although controller APIs accept an 868 MHz tuning window, **868 MHz RF performance is not qualified on this 433 MHz module**. Display sleep is not whole-device deep sleep. Chat history is currently bounded to ten messages total.
 
-```sh
-sudo apt-get install --no-install-recommends gcc-arm-none-eabi binutils-arm-none-eabi build-essential git python3
-python3 firmware/tools/prepare_deps.py
-make -C firmware -j2 protocol-check radio-check uart-check check
-```
+## Documentation and preserved research
 
-- `firmware/build/uartctrl/controller.elf`: **v0.3.1 binary UART controller**, programmed/readback-verified; physical UART regression and RC/XOSC/RC tests pass. 7,664 bytes Flash, 992 bytes static SRAM plus 1 KB stack. Its v0.3.0 predecessor was programmed/readback-verified and physically tested after power restoration. Dynamic center frequency is sent as integer Hz; capability responses distinguish the declared 433–532 MHz module band from the current 433–434 MHz EU_433 policy. 868 MHz and RF activation are rejected.
-- `firmware/build/radiodiag/controller.elf`: **v0.2.1 radio diagnostics**, flashed and UART-tested; 5,100 bytes Flash, 340 bytes static SRAM plus 1 KB stack. `RADIO_RESET`, `RADIO_STATUS`, `RADIO_ERRORS`, and `RADIO_TEST` are implemented with timeouts. Physical reset, initialization, status/error queries and reversible packet-type checks pass: status `0x22`, errors `0x0000`. No RF transmissions or DIO2/DIO3 control.
-- `firmware/build/uartdiag/controller.elf`: the **v0.1.1 UART diagnostic firmware tested on hardware**, using 115200 8N1. Its binary is 1,712 bytes; static SRAM is 60 bytes, plus a reserved 1 KB stack.
-- `firmware/build/controller.elf`: the **experimental SX1262 foundation**, built and host-tested but not flashed or radio-verified. It currently uses 9600 baud and a 4 MHz clock; it is a separate development image.
-- `firmware/src/`, `firmware/include/`: firmware implementations and the SX126x platform hooks.
-- `firmware/tests/`: image, binary/text parser, configuration, Python codec, and mocked radio HAL tests.
-- `configs/`, `bin/`: generic debug configuration and optional diagnostic/tool-build helpers. Builds and tests do not access hardware.
+- [DIY guide](docs/DIY_GUIDE.md) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Build/test reference](docs/BUILD.md)
+- [Hardware photos, package pinouts and measurements](docs/hardware-photos-and-pin-counting.md)
+- [Complete documentation and research index](docs/README.md): earlier firmware, measurements, experiments, pin corrections and test results are retained, with their historical context.
+- [CYD developer notes](cyd/README.md) · [UART feature contract](docs/UART_FEATURES.md) · [Pinned dependency sources](docs/source-lock.json)
 
-See the [binary UART protocol](docs/UART_PROTOCOL.md), [v0.3.0 build/physical results and Meshtastic architecture review](docs/uart-protocol-results.md), [verified radio results and factory-code pin correction](docs/factory-pin-correction.md), [earlier bring-up history](docs/radio-bring-up.md), [build instructions and dependency sources](docs/BUILD.md) and the [hardware bring-up summary](docs/bring-up.md). Generated firmware, downloaded dependencies, private logs, and device-specific identification records are intentionally excluded. Dependencies are fetched by exact commit and verified against [source hashes](docs/source-lock.json); they are not bundled in Git.
+Generated binaries, downloaded dependencies and private logs/identifiers stay outside Git. This source tree does not include a stock firmware restore image. Upstream Meshtastic is GPL-3.0; dependency provenance and licensing are described in the [build reference](docs/BUILD.md#sources-and-licenses).
 
-**Do not treat this README alone as a flashable firmware release.** Only flash firmware built from reviewed and verified sources for the exact target MCU.
+## Support the project
 
-This project is experimental and is **not affiliated with or officially supported by Meshtastic**. Meshtastic is a separate open-source project: https://meshtastic.org/.
-
-## Binary UART controller
-
-After building/programming the reviewed `uartctrl` image, use the standard-library Python utility:
-
-```sh
-python3 bin/uart_radio.py caps
-python3 bin/uart_radio.py status
-python3 bin/uart_radio.py configure --frequency 433500123 --sf 9 --bandwidth 125000 --cr 8
-python3 bin/uart_radio.py readback
-python3 bin/uart_radio.py self-test
-```
-
-For the current live image use `make -C firmware mesh-check` and
-`python3 bin/test_live_controller.py` for the physical non-transmitting regression
-(which briefly enters RX). The `self-test` above is only for the non-RF
-`uartctrl` recovery target.
-
-The utility discovers a single CH340 by-id port or accepts `--port`. SET operations stage RAM; APPLY performs the supported non-RF changes. The self-test restores a known baseline and never starts RX/TX. Persistent Meshtastic configuration stays on the ESP32. The binary image uses version/status/config/readback/link-stat commands and an additive binary PING/PONG in v0.3.1; `radiodiag` preserves the original text diagnostics as a separate recovery image.
-
-## Radio notes
-
-The latest [RF-switch investigation](docs/rf-switch-investigation.md) confirms factory `9D 01` initialization **and** complementary PC3/PC4 direction outputs; the user measured the switch controls to PC3/PC4 and accepted factory-style switching for operation. The component identity and load measurements remain unqualified. The oscillator is now confirmed as a passive 32 MHz crystal, so DIO3 TCXO control must remain disabled. This analysis did not change v0.3.0 or activate RF.
-
-This is the **433 MHz module variant**, not an 868 MHz radio. Frequency selection, output power, duty cycle, and regional configuration must comply with applicable rules. Never transmit without a suitable antenna and verified RF configuration.
+If this project helps you, you can support the hardware, testing and documentation through [Buy Me a Coffee — eightteamtu](https://buymeacoffee.com/eightteamtu). Thank you for supporting the project.

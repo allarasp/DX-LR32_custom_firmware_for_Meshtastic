@@ -9,7 +9,9 @@ custom DIY variant, not an officially supported Meshtastic product.
 The full upstream Meshtastic stack supplies channel configuration, encryption,
 node database, USB PhoneAPI, Bluetooth and the built-in screen/menu UI. A custom
 `RadioInterface` replaces direct radio SPI with our version-1 binary UART link
-to DX-LR32 meshctrl v0.4.0, v0.5.x, v0.6.0 or v0.7.0. The updated source accepts these versions; the previously uploaded CYD image has not been replaced during the v0.5.0 CX32 work. It does not put a second Meshtastic stack on the CX32.
+to DX-LR32 meshctrl v0.8.0. This matched pair negotiates host-managed channel
+access; older controller images must be upgraded before using the current CYD
+adapter. Meshtastic itself runs on the ESP32, with the CX32 as a raw radio.
 The WSL bridge is not required while the CYD is the radio host.
 
 **Default is EU_433, LongFast, public channel and radio TX disabled.** There is
@@ -46,8 +48,10 @@ Xtensa GCC 8.4.0+2021r2-patch5, LovyanGFX 1.2.21, NimBLE-Arduino 1.4.3,
 rweather Crypto 0.4.0. WiFi/MQTT, GPS, I2C and unused sensors are excluded for
 this board. Bluetooth, serial API, text messaging, administration and touch
 input remain enabled. This uses upstream's ordinary TFT UI, not the separate
-LVGL/device-ui package. The revised board UI reserves a bottom strip for Prev/Menu/Next/Chat and a TX
-status line; Chat directly opens upstream's virtual keyboard. Native gestures
+LVGL/device-ui package. The CYD UI uses a 320x200 logical content area and four bottom touch controls.
+Menu becomes green OK in menus/editors. TX enable/activity and heartbeat-backed
+UART status share the native battery/time header. Chat opens recent conversations,
+configured channels and known-node DMs; Compose opens the upstream touch keyboard. Native gestures
 remain available. First boot without valid `cydtouch/cal` NVS data prompts four
 corner-cross presses and stores eight calibration values. Later application-only
 updates preserve them. Calibration and visual orientation require physical
@@ -61,7 +65,7 @@ The matching partition map is upstream's 4 MB `partition-table.csv`; do not
 flash an app binary at address zero or mix bootloaders/partitions from another
 board build. Hardware programming uses the actual discovered serial port.
 
-## Planned UART wiring
+## UART wiring
 
 | CYD | DX-LR32 |
 | --- | --- |
@@ -72,9 +76,8 @@ board build. Hardware programming uses the actual discovered serial port.
 Use 3.3 V logic and the verified module supply arrangement. Do not connect two
 UART transmitters to the same input: remove CH340 data leads when the CYD is
 the host. The CYD's onboard USB CH340 stays on UART0; the external module uses
-UART2, so logs/PhoneAPI do not share the radio data pins. The user has confirmed
-the module is **not yet wired to the CYD**. Do not infer end-to-end radio success
-from the CYD alone.
+UART2, so logs/PhoneAPI do not share the radio data pins. The module is now wired to the CYD; controller handshake and a real peer
+receive test passed on 2026-11-05.
 
 Other CYD pins: display SCK14/MOSI13/MISO12/CS15/DC2/backlight21; touch
 SCK25/MOSI32/MISO39/CS33/IRQ36. The default unrelated LoRa SPI initialization
@@ -89,24 +92,36 @@ is bypassed. I2C is disabled so it cannot claim the external UART RX pin.
   controller does not block the screen or USB/Bluetooth API.
 - Raw RX headers/payloads, RSSI and SNR feed the upstream router for decoding.
   PKI/channel encryption remains upstream; the adapter does not decrypt itself.
-- Single packet transmit ownership, explicit one-shot MCU arming, sequence-matched
-  TxDone, finite watchdog, and a conservative 31-second local cooldown. No UART
-  timeout causes an automatic retransmission of an uncertain packet.
-- TX remains gated by `config.lora.tx_enabled`; board defaults set it false.
-  The build-time bootstrap forces TX off on each boot; any later enabling
-  should be a deliberate test-session action. The adapter currently requests -9 dBm for the first wired tests. The MCU
-  itself accepts -9..+22 dBm and configurable modem settings, with <=2 s airtime;
-  the current adapter does not yet forward the normal power-slider value.
-- No full CAD/CSMA implementation, deep sleep integration, multi-packet radio
-  queue, complete receiver-loss accounting or sustained RF-switch qualification.
-  Some routed/admin/PKI packets may be rejected by airtime/cooldown limits.
-  This is an experimental adapter, not proven Meshtastic interoperability.
+- The pinned upstream 16-packet priority queue, queue status, cancellation,
+  duplicate suppression, upgraded-hop replacement and late rebroadcast windows
+  are connected to the router. Normal upstream randomized/SNR-weighted delays
+  precede each attempt. An active RX is allowed to finish; UART CAD checks the
+  channel before arming/SEND. Busy CAD returns to RX and defers the queued packet.
+- TX/RX airtime feeds upstream AirTime statistics. Regional TX duty budget and
+  channel utilization are checked again at dispatch, including queued traffic.
+  Estimated TX airtime is charged once before SEND so a lost completion cannot
+  undercount airtime. The fixed 30/31-second test cooldown is absent in the CYD's
+  negotiated host mode. Generic raw-controller tools keep their conservative
+  default test policy until explicitly opting into host mode.
+- TX follows saved `config.lora.tx_enabled`; new configurations default off.
+  Upstream modem, frequency slot, power (bounded by the controller's -9..+22 dBm
+  range and upstream regional ceiling), and RX gain settings are forwarded.
+  The implemented tuning windows remain 433–434 and 863–870 MHz; RF performance
+  outside the original module band requires separate qualification.
+- Explicit one-shot MCU arming, sequence-matched CAD/TX completion and finite
+  airtime-derived watchdogs remain. Up to 60 s packet airtime is supported in
+  host mode. No UART timeout automatically replays an uncertain packet.
+- This remains a custom board/adapter. Deep sleep, GFSK through Meshtastic,
+  full failed-RX/noise-floor/counter reporting, and long-run RF/stability
+  qualification remain outside the verified scope. Normal Meshtastic routing,
+  encryption and acknowledgements are supplied by the actual upstream stack.
 
-Host tests compile the **actual adapter source** against small hardware/core
-stubs under ASan/UBSan, covering golden framing/handshake, integer frequency,
-CRC rejection, RX metadata, packet ownership, arm/TX completion matching,
-cooldown, failure/reconnect. They do not replace a wired-controller or peer test.
-See `docs/cyd-bringup.md` for actual upload, API and display results.
+Host tests compile the actual adapter and unchanged pinned upstream queue against
+hardware/core stubs with ASan/UBSan. Coverage includes framing/version/capability
+negotiation, CRC/RX metadata, ownership, priority/cancellation, active RX, CAD
+clear/busy/stale sequence, dispatch duty/channel limits, rapid consecutive TX,
+late windows and uncertain-TX recovery. These are complemented by full builds
+and physical tests recorded in [v0.8.0 results](../docs/v0.8.0-results.md).
 
 ## Sources
 
@@ -130,20 +145,34 @@ after reset. Recalibration currently requires clearing only the `cydtouch`
 namespace in a controlled diagnostic; do not factory-reset the whole node merely
 to recalibrate touch.
 
-The main content area is 320x184; the hardware screen remains 320x240. The bottom
-bar has four 80x40 hit areas. Chat opens free-text composition on public channel
-zero; typing alone does not transmit. Radio TX remains disabled for preparation.
-Menu selects the native context/menu action; Prev/Next use native navigation.
-The ordinary upstream page contents are still mostly monochrome, with colored
-navigation controls. This is not a claim to have ported the separate modern
-LVGL/device-ui application to this non-PSRAM ESP32.
+The logical content area is 320x200 including the native header; the hardware
+screen remains 320x240. The bottom
+bar has four 80x40 hit areas. Chat opens a bounded conversation browser. A
+channel or known-node DM can be selected before composition, and the existing
+MessageRenderer supplies history and delivery state. The native message store
+retains its limit of ten messages total; per-conversation unread counters are
+RAM-only. Back exits the keyboard to the selected conversation. Menu opens its
+Compose/Choose another chat actions; in a menu it turns green and reads OK.
 
-## Controller v0.7.0 preparation
+Clock settings include numeric date/time editing, timezone and 12/24-hour format.
+System exposes rebroadcast mode, Node Info interval (presets/custom minutes),
+display-only timeout, and region/preset/hop/gain/power controls. New editors use
+current-value displays and Save/Cancel. Configurations use the same fields as
+PhoneAPI/Bluetooth, and saved TX remains enabled across ordinary updates.
+The first touch after display sleep is consumed until release; radio/BLE are
+not put to sleep. See [GUI controls and validation](../docs/cyd-gui.md).
 
-The updated source accepts v0.7.0 and was built successfully. The new app is
+## Historical controller v0.7.0 preparation
+
+The earlier adapter accepted v0.7.0 and was built successfully. That earlier app was
 1,317,552 B, SHA-256
 `42a9dc11131b0a9f07230e8e8b2bf39380c855d4e00910de2ac6981c80a082b9`.
-It was not uploaded in this stage. Update the CYD before replacing the CH340
-with UART2 wiring. MCU CAD/sleep/GFSK support does not automatically integrate
+That compatible image was subsequently uploaded and the wired receive test
+passed. The current app also preserves explicit TX settings across reboot; see
+[bring-up results](../docs/cyd-bringup.md). MCU CAD/sleep/GFSK support does not automatically integrate
 those features into this LoRa Meshtastic adapter.
 See [ESP32 steps and delivery-status limits](../docs/ESP32_INTEGRATION.md).
+
+## First-time builders
+
+Use the [complete DIY guide](../docs/DIY_GUIDE.md), [CYD flashing procedure](../docs/FLASHING_CYD.md) and [troubleshooting](../docs/TROUBLESHOOTING.md). This file is the developer overlay reference. New configurations require explicit TX enablement through the phone app or USB API.

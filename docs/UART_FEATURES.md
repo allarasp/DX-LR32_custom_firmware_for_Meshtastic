@@ -1,9 +1,10 @@
-# UART radio features — controller v0.7.0
+# UART radio features — controller v0.8.0
 
 Wire protocol remains version 1. Existing commands/events keep their formats.
-Firmware version 0.7.0 advertises capability mask `0x007FFBFF`: v0.6.0 features
+Firmware version 0.8.0 advertises capability mask `0x01FFFBFF`: v0.6.0 features
 plus bits 16 RSSI, 17 hardware statistics, 18 RX gain, 19 CAD, 20 sleep/wake,
-21 duty RX, 22 GFSK. Bit 10 TCXO remains clear. All integers are little endian;
+21 duty RX, 22 GFSK, 23 host-managed transmit policy, 24 RX activity.
+Bit 10 TCXO remains clear. All integers are little endian;
 request/reply lengths below are payload lengths, excluding frame headers/CRC.
 
 ## Commands
@@ -116,7 +117,8 @@ Workarounds for 600/1200 bit/s are applied and reset when leaving those settings
 Fixed-length SEND must match configured payload length. Address-filter users
 must supply the appropriate address byte in their raw packet; this feature has
 not had a peer interoperability test. GFSK airtime uses GFSK parameters and
-retains the existing 2000 ms packet guard and TX cooldown.
+retains the 2000 ms packet guard and TX cooldown in default test mode;
+explicit host-managed mode has the limits described below.
 
 GFSK APPLY/readback mask is 0x001B: packet type, sync, TX-modulation workaround,
 and GFSK seed/address checks. It does not claim full frequency/modem/packet
@@ -154,6 +156,33 @@ Timed LoRa RX cleanup now stops RTC/clears its event through Semtech's provided
 helper, including implicit-header receive-to-stop transitions. There are still
 no arbitrary register writes, DIO2/DIO3 control commands, continuous carrier or
 infinite-preamble commands.
+
+## Host-managed Meshtastic channel access (v0.8.0)
+
+| ID | Command | Request | Successful reply |
+| ---: | --- | --- | --- |
+| 37 | SET_HOST_MODE | Empty to query; otherwise mode:u8 (0 test, 1 host-managed), set only while idle | status:u8, mode:u8 |
+| 38 | GET_RX_ACTIVITY | Empty; normal RX with valid configuration required | status:u8, active:u8 (0/1), raw_irq:u16 |
+
+Mode defaults to 0 after MCU boot and is reset to 0 by a UART transport fault.
+Mode 1 explicitly assigns channel-access and airtime policy to the UART host.
+It removes the fixed 30-second TX pause and raises the per-packet airtime bound
+from 2 s to 60 s. It does not transmit anything or grant an ARM. One-shot ARM,
+duplicate-sequence protection, hardware timeout, power/frequency/PHY validation
+and cleanup behavior remain. GET_EXT_STATUS reports zero TX cooldown in mode 1;
+its existing schema/length is unchanged. Query command 37 for the current mode.
+Switching back to mode 0 retains any unexpired conservative attempt cooldown.
+
+Activity queries leave RX/IRQ state intact. Preamble/sync/header IRQs defer the
+host; a latched noise indication expires after maximum configured packet airtime
+plus 1 s. Completed/error/timeout packets are not classified as active RX.
+After an idle result, the CYD stops RX, runs CAD with the current PHY and awaits
+the matching event. Busy CAD resumes RX and backs off. A clear scan permits
+ARM/SEND after the upstream queue delay and airtime/channel-budget checks.
+The CYD uses upstream Meshtastic's 16-packet priority queue, cancellation and
+randomized/SNR-weighted delays, and logs estimated TX airtime once even if a
+completion becomes uncertain. Actual radio completion still does not prove
+peer delivery; normal Meshtastic acknowledgements provide that separately.
 
 ## Host tool
 

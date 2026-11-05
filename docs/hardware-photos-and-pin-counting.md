@@ -1,6 +1,8 @@
 # DX-LR32-A PCB photos and IC pin numbering
 
-The hardware photos in this project were taken **after removing the metal RF shielding can** from the DX-LR32-A module. The removal exposes the Semtech SX1262 transceiver, the CX32L003F8 controller and surrounding RF components. The RF shield was removed for inspection only; this modification may affect RF shielding and performance.
+The hardware photos in this project were taken **after removing the metal RF shielding can** from the DX-LR32-A module. The removal exposes the Semtech SX1262 transceiver, the CX32L003F8 controller and surrounding RF components. The RF shield was removed for inspection only; this modification may affect RF shielding and performance. **It is not required for back-pad SWD flashing.**
+
+![Component side, shielding removed for research](images/dx-lr32-front-unshielded.jpeg)
 
 ## How to count IC pins
 
@@ -38,7 +40,7 @@ The table uses **physical package pin numbers**, not GPIO number indices.
 | MISO | 16 | PD2 | 16 | Multimeter tracing / working SPI |
 | **NRESET** | **15** | **PB4** | **9** | **Corrected using factory-code analysis; physically tested in v0.2.1** |
 | **BUSY** | **14** | **PB5** | **8** | **Corrected using factory-code analysis; physically tested in v0.2.1** |
-| DIO1 | 13 | PD4 | 18 | Multimeter tracing; IRQ operation still to be tested |
+| DIO1 | 13 | PD4 | 18 | Multimeter tracing; later live RX/TX verified (see v0.8.0 results) |
 
 **Important:** The first continuity-based interpretation had NRESET and BUSY swapped. The **correct mapping is NRESET → PB4 (CX32 physical pin 9), BUSY → PB5 (physical pin 8)**. v0.2.1 confirmed reset and SX1262 command responses. See [factory pin correction](factory-pin-correction.md).
 
@@ -56,30 +58,38 @@ The five vertically stacked, round pads on the PCB reverse side were numbered in
 
 **Note:** SWD pad numbers 1–5 refer to the five points marked on the module's **back-side photo**, not QFN pin numbers.
 
-## Hardware photo index
+## Actual images and package references
 
-The following filenames are used for the image assets once copied into `docs/images/`:
+![Back-side SWD pads numbered 1–5](images/dx-lr32-swd-pads-annotated.jpeg)
 
-| Filename | Subject |
-|---|---|
-| `dx-lr32-front-unshielded.jpeg` | Component side of DX-LR32 PCB with metal shielding removed |
-| `dx-lr32-rf-closeup.jpeg` | Detail view of RF components after shield removal |
-| `dx-lr32-chip-markings.jpeg` | Close-up of SX1262 and CX32 controller markings |
-| `dx-lr32-swd-pads-annotated.jpeg` | Reverse side, with SWD test pads numbered 1–5 in red |
-| `st-link-v2-example.png` | Reference product image of ST-Link V2 (not a PCB shield-removal photo) |
+| Image | Subject |
+| --- | --- |
+| [Component photograph](images/dx-lr32-front-unshielded.jpeg) | Recovered full-resolution color photograph from the original DNG in Git history |
+| [Numbered SWD pads](images/dx-lr32-swd-pads-annotated.jpeg) | Original annotated user photograph; pad numbers match the table above |
+| [CX32 pinout](images/cx32l003f8-pinout.png) | Uploaded MCU reference |
+| [CX32 alternate pinout](images/cx32l003f8-pinout-alternate.png) | Second uploaded MCU reference |
+| [SX1262 pinout](images/sx1262-pinout.png) | Uploaded transceiver reference |
 
-Once those images are in the repository, their Markdown references can be:
+![CX32L003F8 package reference](images/cx32l003f8-pinout.png)
+![Alternative CX32L003F8 reference](images/cx32l003f8-pinout-alternate.png)
+![SX1262 package reference](images/sx1262-pinout.png)
 
-```md
-![DX-LR32 component side after removing shielding](images/dx-lr32-front-unshielded.jpeg)
-![DX-LR32 RF-side close-up](images/dx-lr32-rf-closeup.jpeg)
-![SX1262 and CX32 chip markings](images/dx-lr32-chip-markings.jpeg)
-![DX-LR32 back-side SWD pads, numbered 1–5](images/dx-lr32-swd-pads-annotated.jpeg)
-![ST-Link V2 reference image](images/st-link-v2-example.png)
-```
+These references must be read with their package/view orientation, not assumed to be physical header diagrams. [Image recovery and provenance](research/image-provenance.md). The earlier placeholder photo list remains [archived](research/photo-index-before-image-recovery.md); its unprovided close-up/product images were never present and are not invented here.
+
+## External header and host wiring
+
+| Module signal | MCU port / physical pin | Use with CYD |
+| --- | --- | --- |
+| TXD | PD5 / 19 | To CYD GPIO22 (RX) |
+| RXD | PD6 / 20 | From CYD GPIO27 (TX) |
+| AUX | PA3 / 7 | Unused by the current adapter |
+| M1 | PC6 / 13 | Unused by the current adapter |
+| M0 | PC5 / 12 | Unused by the current adapter |
+
+Each of the five signal lines has a measured **100 Ω series resistor**. VCC and GND are separate supply connections. The custom firmware replaces the original AUX/M0/M1 and UART behavior. [Complete wiring/power guide](DIY_GUIDE.md#3-install-the-cyd-firmware-and-connect-uart).
 
 ## Measurement notes
 
 Trace with the target unpowered. Never rely solely on visual trace-following or a continuity beeper for small-package connections; confirm resistance and the relevant datasheets. Do not infer TCXO/DIO3 or RF-switch/DIO2 connections from these photos alone.
 
-SX1262 standby-RC SPI checks succeed with firmware v0.2.1, but **RF transmission and reception are not yet verified**.
+Standby-RC SPI checks first passed with v0.2.1. Later firmware verified real RX/TX, peer interoperability and standalone CYD messaging; see [v0.8.0 evidence](v0.8.0-results.md). The passive 32 MHz crystal requires DIO3 TCXO control to remain disabled. RF-switch component identity/load and sustained RF qualification remain open; historical measurements are retained in [RF-switch research](rf-switch-investigation.md).

@@ -1,3 +1,5 @@
+> Historical/research document: this records an earlier stage or diagnostic workflow. For the current standalone CYD + DX-LR32 installation use the [DIY guide](DIY_GUIDE.md) and [current build reference](BUILD.md). Later measurements are indexed in [the research index](README.md).
+
 # Hardware bring-up status
 
 This is an experimental UART-to-SX1262 controller, not a Meshtastic firmware

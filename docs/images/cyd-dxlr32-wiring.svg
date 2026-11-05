@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="355" viewBox="0 0 900 355" role="img" aria-labelledby="title desc">
+<title id="title">CYD to DX-LR32 UART wiring</title><desc id="desc">GPIO27 TX to RXD PD6, GPIO22 RX from TXD PD5, common ground. CYD USB power and one regulated 3.3 volt module supply. Conceptual diagram, not physical pin order.</desc>
+<defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#086f91"/></marker></defs>
+<rect width="900" height="355" rx="12" fill="#f4f7fa"/>
+<g font-family="sans-serif" fill="#172b3b"><rect x="30" y="30" width="285" height="250" rx="12" fill="#ffe37e" stroke="#172b3b"/><rect x="585" y="30" width="285" height="250" rx="12" fill="#d8ecdf" stroke="#172b3b"/>
+<g font-size="23" font-weight="bold"><text x="52" y="66">CYD · two USB ports</text><text x="606" y="66">DX-LR32-A · 433 MHz</text></g>
+<g font-size="19"><text x="52" y="105">GPIO27 · TX</text><text x="606" y="105">RXD · PD6</text><text x="52" y="155">GPIO22 · RX</text><text x="606" y="155">TXD · PD5</text><text x="52" y="205">GND</text><text x="606" y="205">GND</text><text x="52" y="253">Power: USB data cable</text><text x="606" y="253">VCC: regulated 3.3 V</text></g>
+<g stroke="#086f91" stroke-width="3"><path d="M290 100 H593" marker-end="url(#arrow)"/><path d="M605 150 H302" marker-end="url(#arrow)"/><path d="M290 200 H605"/></g>
+<text x="450" y="90" text-anchor="middle" font-size="15">115200 · 8N1</text><text x="450" y="183" text-anchor="middle" font-size="15">3.3 V logic</text><text x="450" y="226" text-anchor="middle" font-size="15">Supply GND joins here too</text>
+<text x="30" y="313" font-size="18">Use one supply per rail. Keep antenna attached. AUX/M0/M1 unused.</text><text x="30" y="339" font-size="16">Conceptual connections only — boxes do not represent physical header pin order.</text></g></svg>

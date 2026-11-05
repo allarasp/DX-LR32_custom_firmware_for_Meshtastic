@@ -1,13 +1,13 @@
-# Live raw-LoRa UART controller v0.7.0
+# Live raw-LoRa UART controller v0.8.0
 
 The `meshctrl` build name is retained for compatibility, but the CX32 handles
 raw LoRa packets and has no Meshtastic packet/encryption dependency. Existing
 protocol-v1 frame encoding, command IDs and payload layouts remain unchanged.
 Legacy `uartctrl` is still a separate non-RF v0.3.1 recovery target.
 
-BOOT and GET_VERSION identify 0.7.0. Capabilities mask is 0x007FFBFF: existing
+BOOT and GET_VERSION identify 0.8.0. Capabilities mask is 0x01FFFBFF: existing
 0–9/11 features, bit 12 configurable TX, bit 13 radio/transport statistics,
-bit 14 queued UART output, bit 15 multiple frequency ranges (command 24). Bit 10 (TCXO) remains clear. Bits 16–22 add RSSI, PHY statistics, RX gain, CAD, sleep/wake, duty RX and GFSK; see [feature formats](UART_FEATURES.md).
+bit 14 queued UART output, bit 15 multiple frequency ranges (command 24). Bit 10 (TCXO) remains clear. Bits 16–22 add RSSI, PHY statistics, RX gain, CAD, sleep/wake, duty RX and GFSK; bits 23/24 add host-managed TX policy and RX activity; see [feature formats](UART_FEATURES.md).
 
 ## Configuration and transmission
 
@@ -37,8 +37,8 @@ ranges describe accepted settings, not measured RF performance.
 
 Implicit-header TX requires packet length equal to configured payload length.
 Explicit-header TX accepts 1..255 bytes. Airtime is calculated with the actual
-applied modem/packet parameters; values over 2000 ms are rejected. Slow profiles
-can therefore require shorter packets. Configuration validation still enforces
+applied modem/packet parameters. Default test mode rejects values over 2000 ms;
+explicit host-managed mode (37, byte 1, idle only) permits up to 60000 ms. Configuration validation still enforces
 LDRO, SF/preamble and band-edge combinations.
 
 - START_RX (9): timeout_ms:u32, zero continuous; otherwise 1..262143. Finite
@@ -49,7 +49,10 @@ LDRO, SF/preamble and band-edge combinations.
 - SEND_PACKET (11): raw bytes. Acceptance is not delivery confirmation.
 - ARM_TX (21): ASCII `TX1!`. One attempt within 30 seconds; not authentication.
 
-Each attempted TX reserves a 30-second cooldown, including a failed attempt.
+In default test mode each attempted TX reserves a 30-second cooldown, including
+a failed attempt. Host-managed mode removes this fixed pause: the host must
+implement channel checks, queue scheduling and regional airtime accounting.
+See [host-mode contract](UART_FEATURES.md#host-managed-meshtastic-channel-access-v080).
 Invalid length/airtime/combination or busy rejection does not consume the arm.
 There is no automatic retry. Radio timeout is airtime+100 ms; software watchdog
 adds 200 ms. Success resumes RX if it was active. Failure stops/releases and

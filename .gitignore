@@ -46,3 +46,7 @@ __pycache__/
 *.su
 *.tmp
 *~
+
+# Personal firmware backups/identities and locally assembled release bundles
+/backups/
+/dist/

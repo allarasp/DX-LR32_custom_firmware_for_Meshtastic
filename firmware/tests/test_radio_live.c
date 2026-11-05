@@ -103,7 +103,7 @@ int main(void) {
  setup();pad_fault=true;assert(command(RP_STOP_RX,0,0)==RP_RADIO_ERROR&&!rc_active_valid);
  assert(command(RP_START_RX,zero,4)==RP_NOT_READY);
  setup();assert(command(RP_START_RX,zero,4)==RP_OK);live_link_fault();assert(chip==2&&pad==0&&!rc_active_valid);
- assert(live_handle(RP_GET_VERSION,0,0,out,0)==5&&out[2]==7&&out[3]==0);
+ assert(live_handle(RP_GET_VERSION,0,0,out,0)==5&&out[2]==8&&out[3]==0);
  setup();assert(command(21,arm,4)==RP_OK);assert(command(RP_START_RX,zero,4)==RP_OK);irq=4;assert(command(RP_SEND,packet,32)==RP_NOT_READY&&!starts);
  setup();fault=true;assert(command(RP_START_RX,zero,4)==RP_RADIO_ERROR&&pad==0&&resets);
  setup();rc_active_valid=false;assert(command(RP_START_RX,zero,4)==RP_NOT_READY);
@@ -155,5 +155,33 @@ int main(void) {
  assert(last_event==0x86&&last[14]==32&&(int16_t)rp_u16(last+8)==-388&&(int16_t)rp_u16(last+10)==-380);
  assert(command(RP_ARM_TX,arm,4)==RP_OK&&command(RP_SEND,packet,32)==RP_OK&&starts==1);
  wire[0]=wire[1]=wire[2]=wire[3]=0;assert(phy_stage(wire)==RP_RANGE); /* divide-by-zero rejected */
+ /* Host mode is explicit, observable, idle-only and volatile. */
+ setup();uint8_t managed=1;
+ assert(live_handle(RP_SET_HOST_MODE,0,0,out,0)==2&&out[1]==0);
+ assert(command(RP_SET_HOST_MODE,&managed,0)==RP_OK);
+ assert(command(RP_SET_HOST_MODE,&managed,2)==RP_LENGTH);
+ uint8_t invalid_mode=2;assert(command(RP_SET_HOST_MODE,&invalid_mode,1)==RP_RANGE);
+ assert(command(RP_START_RX,zero,4)==RP_OK);
+ assert(command(RP_SET_HOST_MODE,&managed,1)==RP_NOT_READY);
+ irq=4;assert(live_handle(RP_GET_RX_ACTIVITY,0,0,out,0)==4&&out[1]==1&&irq==4&&chip==5);
+ now+=60000;assert(live_handle(RP_GET_RX_ACTIVITY,0,0,out,0)==4&&!out[1]);
+ irq=0;assert(live_handle(RP_GET_RX_ACTIVITY,0,0,out,0)==4&&!out[1]);
+ assert(command(RP_STOP_RX,0,0)==RP_OK);
+ assert(command(RP_GET_RX_ACTIVITY,0,0)==RP_NOT_READY);
+ assert(command(RP_SET_HOST_MODE,&managed,1)==RP_OK);
+ assert(live_handle(RP_SET_HOST_MODE,0,0,out,0)==2&&out[1]==1);
+ assert(command(RP_ARM_TX,arm,4)==RP_OK&&command(RP_SEND,packet,32)==RP_OK);
+ irq=1;poll();assert(last_event==0x82&&last[0]==RP_OK);
+ assert(live_handle(RP_GET_EXT_STATUS,0,0,out,0)==25&&rp_u32(out+17)==0);
+ assert(command(RP_SEND,packet,32)==RP_DISABLED); // One arm is still one attempt.
+ assert(command(RP_ARM_TX,arm,4)==RP_OK&&command(RP_SEND,packet,32)==RP_OK&&starts==2);
+ irq=1;poll();assert(last[0]==RP_OK);
+ live_link_fault();assert(live_handle(RP_SET_HOST_MODE,0,0,out,0)==2&&!out[1]);
+ setup();assert(command(RP_SET_HOST_MODE,&managed,1)==RP_OK);
+ rc_active.sf=12;rc_active.bandwidth=125000;rc_active.ldro=1;
+ assert(command(RP_ARM_TX,arm,4)==RP_OK&&command(RP_SEND,packet,64)==RP_OK);
+ now+=2200;irq=0;poll();assert(chip==6); // >2s legitimate packet is allowed; watchdog derives from airtime.
+ irq=1;poll();assert(last_event==0x82&&last[0]==RP_OK);
+ setup();assert(live_handle(RP_SET_HOST_MODE,0,0,out,0)==2&&!out[1]);
  puts("Live radio host tests passed: RX metadata/255 bytes, CRC discard, single-arm TX, duty, IRQ busy, watchdog, cleanup and recovery");
 }

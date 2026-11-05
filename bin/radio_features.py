@@ -42,8 +42,8 @@ def prepare(link,modem='lora',frequency=433875000,power=-9,**params):
     return configure(link,frequency=frequency,power=power,**params)
 
 def regression(link):
-    assert link.request(1)==bytes([0,0,7,0,1])
-    assert struct.unpack_from('<I',link.request(2),2)[0]==0x7ffbff
+    version=link.request(1);assert version in (bytes([0,0,7,0,1]),bytes([0,0,8,0,1]))
+    assert struct.unpack_from('<I',link.request(2),2)[0]==(0x1fffbff if version[2]>=8 else 0x7ffbff)
     prepare(link)
     link.request(27);assert link.request(26)[2:]==b'\0'*6
     for gain in (0,1,0):

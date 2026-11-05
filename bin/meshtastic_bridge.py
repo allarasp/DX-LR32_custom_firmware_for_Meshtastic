@@ -92,8 +92,8 @@ def event_packet(frame,own_node,target_suffix=None):
 
 def setup(link,hz):
     version=link.request(1)
-    if tuple(version[1:4]) not in ((0,4,0),(0,5,0),(0,5,1),(0,6,0),(0,7,0)):
-        raise RuntimeError('requires live controller v0.4.0, v0.5.x v0.6.0 or v0.7.0; installed v0.3.1 cannot receive packets over UART')
+    if tuple(version[1:4]) not in ((0,4,0),(0,5,0),(0,5,1),(0,6,0),(0,7,0),(0,8,0)):
+        raise RuntimeError('requires live controller v0.4.0, v0.5.x, v0.6.0, v0.7.0 or v0.8.0; installed v0.3.1 cannot receive packets over UART')
     caps=link.request(2)
     if struct.unpack_from('<I',caps,2)[0]&0x300!=0x300:raise RuntimeError('RX/TX capability missing')
     link.request(10)

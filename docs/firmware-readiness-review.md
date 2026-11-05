@@ -1,3 +1,5 @@
+> Historical/research document: this records an earlier stage or diagnostic workflow. For the current standalone CYD + DX-LR32 installation use the [DIY guide](DIY_GUIDE.md) and [current build reference](BUILD.md). Later measurements are indexed in [the research index](README.md).
+
 # CX32 controller readiness review
 
 Historical v0.4.0 review; several issues below are addressed by the subsequent

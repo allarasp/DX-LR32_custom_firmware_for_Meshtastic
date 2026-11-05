@@ -23,7 +23,7 @@ class TestFeatures(unittest.TestCase):
                                input=b''.join(encode(cmd,i+1,p) for i,(cmd,p) in enumerate(commands)),
                                capture_output=True,check=True)
         replies={f[3]:f[4] for f in Decoder().feed(process.stdout) if f[1]==1}
-        self.assertEqual(replies[1],bytes([0,0,7,0,1]))
+        self.assertEqual(replies[1],bytes([0,0,8,0,1]))
         self.assertEqual(replies[3][:5],b'\0\x1b\0\x1b\0')
         self.assertEqual(replies[4],bytes([0,1,1,0])+wire)
         self.assertEqual(replies[5],bytes([7]))

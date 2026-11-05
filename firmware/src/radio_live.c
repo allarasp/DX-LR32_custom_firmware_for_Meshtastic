@@ -11,7 +11,8 @@ static unsigned mode;
 static uint32_t stats[9];
 static bool have_tx;
 static uint16_t previous_seq,previous_crc,previous_len;
-static bool armed,rx_again,duty_active;
+static bool armed,rx_again,duty_active,host_managed,activity_seen;
+static uint32_t activity_at;
 static uint32_t arm_at,start,limit,next_tx,last_poll,rx_timeout;
 static uint16_t tx_seq,rx_seq,cad_seq;
 static bool boosted,rx_duty;
@@ -38,7 +39,7 @@ static bool stop(void) {
  if(!a||!b) {++stats[7];armed=false;rc_invalidate();}return a&&b;
 }
 static void error(uint8_t origin) {uint8_t p[2]={origin,RP_RADIO_ERROR};emit(0x83,origin==RP_SEND?tx_seq:0,p,2);}
-void live_link_fault(void) {armed=false;rx_again=false;if(mode==4)++stats[6];(void)stop();rc_invalidate();}
+void live_link_fault(void) {host_managed=false;armed=false;rx_again=false;if(mode==4)++stats[6];(void)stop();rc_invalidate();}
 static bool prepare(void) {
  uint32_t lower,upper;
  if(!rc_active_valid || rc_frequency_bounds(rc_active.frequency,&lower,&upper)!=RP_OK)return false;
@@ -51,11 +52,20 @@ static bool prepare(void) {
 static bool receive(void) {
  if(!live_pads(1)||!packet_limit(rc_active.payload)||!clear_irq())return false;
  bool a=rx_duty?ok(sx126x_set_rx_duty_cycle(0,duty_window,duty_sleep)):rx_timeout?ok(sx126x_set_rx(0,rx_timeout)):ok(sx126x_set_rx_with_timeout_in_rtc_step(0,SX126X_RX_CONTINUOUS));
- if(a) {mode=rx_duty?5:3;start=radio_io_millis();}return a;
+ if(a) {mode=rx_duty?5:3;start=radio_io_millis();activity_seen=false;}return a;
 }
-void live_init(live_emit_fn fn) {emit=fn;mode=0;armed=rx_again=duty_active=false;rx_seq=0;last_poll=rx_timeout=0;have_tx=false;boosted=rx_duty=false;
+void live_init(live_emit_fn fn) {emit=fn;mode=0;armed=rx_again=duty_active=false;rx_seq=0;last_poll=rx_timeout=0;have_tx=false;boosted=rx_duty=host_managed=activity_seen=false;
  for(unsigned i=0;i<9;++i)stats[i]=0;
  if(!live_pads(0)) {mode=255;++stats[7];rc_invalidate();}}
+static uint32_t packet_airtime(uint8_t length) {
+ if(phy_active_type==0)return phy_airtime(length);
+ int bw=rc_bandwidth_code(rc_active.bandwidth);
+ if(bw<0)return 0;
+ const sx126x_mod_params_lora_t m={(sx126x_lora_sf_t)rc_active.sf,(sx126x_lora_bw_t)bw,
+   (sx126x_lora_cr_t)(rc_active.cr-4),rc_active.ldro};
+ const sx126x_pkt_params_lora_t pkt={rc_active.preamble,(sx126x_lora_pkt_len_modes_t)rc_active.header,length,rc_active.crc!=0,rc_active.iq!=0};
+ return sx126x_get_lora_time_on_air_in_ms(&pkt,&m);
+}
 static void complete(uint8_t status) {
  uint32_t elapsed=radio_io_millis()-start;
  bool again=rx_again;
@@ -132,6 +142,26 @@ uint16_t live_handle(uint8_t cmd,const uint8_t *p,uint16_t n,uint8_t *out,uint16
     cmd==RP_START_RX||cmd==RP_SEND||cmd==RP_GET_RSSI||cmd==RP_GET_PHY_STATS||cmd==RP_RESET_PHY_STATS||
     cmd==RP_SET_RX_GAIN||cmd==RP_START_CAD||cmd==RP_START_DUTY_RX||cmd==RP_SLEEP))goto not_ready;
  if(mode==5&&(cmd==RP_GET_ERRORS||cmd==RP_GET_READBACK||cmd==RP_TEST_XOSC||cmd==RP_GET_PHY_STATS||cmd==RP_RESET_PHY_STATS))goto not_ready;
+ /* Host policy is volatile and explicit: the host owns CAD, regional policy and airtime accounting.
+  * Generic raw-radio tools retain the conservative test limits until they opt in. */
+ if(cmd==RP_SET_HOST_MODE) {
+  if(!n) {out[1]=host_managed;return 2;}
+  if(n!=1)goto length;
+  if(p[0]>1)goto range;
+  if(mode!=0)goto not_ready;
+  host_managed=p[0]!=0;armed=false;out[1]=host_managed;return 2;
+ }
+ if(cmd==RP_GET_RX_ACTIVITY) {
+  if(n)goto length;
+  if(mode!=3||!rc_active_valid)goto not_ready;
+  sx126x_irq_mask_t flags=0;
+  if(!ok(sx126x_get_irq_status(0,&flags)))goto operation_error;
+  bool active=(flags&0x001c)&&!(flags&0x0242);
+  if(active&&!activity_seen) {activity_seen=true;activity_at=radio_io_millis();}
+  /* Preamble IRQs can remain latched after noise. Never block the host forever. */
+  if(active&&(uint32_t)(radio_io_millis()-activity_at)>packet_airtime(255)+1000)active=false;
+  out[1]=active;rp_put16(out+2,flags);return 4;
+ }
  if(cmd==RP_GET_EXT_STATUS) {
   if(n)goto length;
   out[1]=1;out[2]=(uint8_t)mode;out[3]=phy_pending_type;out[4]=phy_active_type;
@@ -139,7 +169,7 @@ uint16_t live_handle(uint8_t cmd,const uint8_t *p,uint16_t n,uint8_t *out,uint16
   uint32_t elapsed=radio_io_millis()-duty_started;
   rp_put32(out+13,mode==5&&elapsed<duty_duration?duty_duration-elapsed:0);
   uint32_t now=radio_io_millis();
-  rp_put32(out+17,duty_active&&(int32_t)(next_tx-now)>0?next_tx-now:0);
+  rp_put32(out+17,!host_managed&&duty_active&&(int32_t)(next_tx-now)>0?next_tx-now:0);
   rp_put32(out+21,armed&&(uint32_t)(now-arm_at)<30000?30000-(now-arm_at):0);return 25;
  }
  if(cmd==RP_GET_RSSI) {
@@ -278,20 +308,16 @@ uint16_t live_handle(uint8_t cmd,const uint8_t *p,uint16_t n,uint8_t *out,uint16
   if(have_tx && seq==previous_seq) {++stats[8];out[0]=(n==previous_len&&crc==previous_crc)?RP_DUPLICATE:RP_COMBINATION;return 1;}
   uint32_t now=radio_io_millis();
   if(!armed || now-arm_at>30000) {armed=false;out[0]=RP_DISABLED;return 1;}
-  if((mode!=0 && mode!=3) || !rc_active_valid || (duty_active && (int32_t)(now-next_tx)<0))goto not_ready;
+  if((mode!=0 && mode!=3) || !rc_active_valid || (!host_managed && duty_active && (int32_t)(now-next_tx)<0))goto not_ready;
   sx126x_irq_mask_t irq=0;
   if(mode==3 && (!ok(sx126x_get_irq_status(0,&irq)) || (irq&0x001e)))goto not_ready;
   if((phy_active_type==1&&rc_active.header&&n!=rc_active.payload)||(phy_active_type==0&&phy_active.header==0&&n!=phy_active.payload)) {out[0]=RP_COMBINATION;return 1;}
-  int bw=rc_bandwidth_code(rc_active.bandwidth);
-  if((phy_active_type==1&&bw<0) || rc_active.power < -9 || rc_active.power>RC_POWER_MAX)goto range;
-  const sx126x_mod_params_lora_t m={(sx126x_lora_sf_t)rc_active.sf,(sx126x_lora_bw_t)bw,
-      (sx126x_lora_cr_t)(rc_active.cr-4),rc_active.ldro};
-  const sx126x_pkt_params_lora_t pkt={rc_active.preamble,(sx126x_lora_pkt_len_modes_t)rc_active.header,n,rc_active.crc!=0,rc_active.iq!=0};
-  uint32_t airtime=phy_active_type==0?phy_airtime((uint8_t)n):sx126x_get_lora_time_on_air_in_ms(&pkt,&m);
-  if(!airtime||airtime>2000)goto range;
+  if(rc_active.power < -9 || rc_active.power>RC_POWER_MAX)goto range;
+  uint32_t airtime=packet_airtime((uint8_t)n);
+  if(!airtime||airtime>(host_managed?60000u:2000u))goto range;
   bool again=mode==3;armed=false;tx_seq=seq;rx_again=again;
   have_tx=true;previous_seq=seq;previous_crc=crc;previous_len=n;++stats[4];
-  /* Charge a conservative full 3-second attempt before any RF command. */
+  /* The default test policy keeps a fixed pause. Host-managed mode accounts actual airtime on the ESP32. */
   next_tx=now+30000;duty_active=true;limit=airtime+100;
   /* Nominal SX1262 full-range PA, datasheet table 13-21. No regional cap. */
   const sx126x_pa_cfg_params_t pa={4,7,0,1};
